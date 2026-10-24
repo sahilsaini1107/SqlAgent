@@ -20,10 +20,13 @@ ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
     {
         # aggregates
         "count", "sum", "avg", "min", "max", "total", "group_concat",
+        # window (ranking, offsets, running values)
+        "row_number", "rank", "dense_rank", "percent_rank", "cume_dist", "ntile",
+        "lag", "lead", "first_value", "last_value", "nth_value",
         # string
         "length", "lower", "upper", "trim", "ltrim", "rtrim", "substr", "substring",
         "replace", "instr", "printf", "format", "char", "unicode", "hex", "quote",
-        "concat", "concat_ws",
+        "concat", "concat_ws", "like", "glob",
         # numeric
         "abs", "round", "ceil", "ceiling", "floor", "sign", "mod", "power", "sqrt",
         # date / time
