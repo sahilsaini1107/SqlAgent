@@ -1,14 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "python3 -m pip install pydantic-settings && python3 -c \"import sys; sys.path.insert(0, 'apps/api'); from app.db.build import build_sample_db; print(build_sample_db())\" && npm --prefix apps/web ci && npm --prefix apps/web run build",
-  "outputDirectory": "apps/web/dist",
+  "buildCommand": "python3 -c \"import sys; sys.path.insert(0, 'apps/api'); from app.db.build import build_sample_db; print(build_sample_db())\" && npm --prefix apps/web ci && npm --prefix apps/web run build",
   "functions": {
-    "api/index.py": {
-      "includeFiles": "{data/**,apps/api/app/**}"
+    "index.py": {
+      "includeFiles": "{data/**,apps/api/app/**,apps/web/dist/**}",
+      "excludeFiles": "apps/web/node_modules/**"
     }
-  },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
-    { "source": "/health", "destination": "/api/index" }
-  ]
+  }
 }

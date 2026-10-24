@@ -4,22 +4,25 @@ The app can be deployed full-stack on **Vercel** (frontend + Python serverless A
 single **Docker** container on a persistent host (Render/Fly/Railway). Vercel is the primary
 target; read the constraints below first.
 
-## Option A — Vercel (frontend + serverless API)
+## Option A — Vercel (FastAPI preset, one function)
 
-Files already in the repo: `vercel.json`, `api/index.py` (ASGI entry), `requirements.txt`
-(exported from the uv lockfile), `.vercelignore`.
+Files in the repo: `index.py` (entrypoint), `vercel.json`, `requirements.txt` (exported from
+the uv lockfile), `.python-version` (3.12), `.vercelignore`.
 
 ### How it fits together
-- `vercel.json` builds the sample database (`app.db.build`) and the Vite frontend, serves the
-  SPA from `apps/web/dist`, and rewrites `/api/*` and `/health` to the Python function.
-- `api/index.py` adds `apps/api` to the path, points the conversation DB at `/tmp`, and exposes
-  the FastAPI ASGI `app`. The sample DB is bundled read-only via `includeFiles`.
+- Vercel's **FastAPI** framework preset finds the `app` in the root `index.py` and routes
+  every request to it. `index.py` adds `apps/api` to the path, points the conversation DB at
+  `/tmp`, and points `WEB_DIST_DIR` at the built frontend, so the API and the SPA share one
+  origin (no rewrites).
+- `vercel.json`'s build command runs after `requirements.txt` is installed and before the
+  function is bundled: it generates `data/sample.sqlite` (`app.db.build`) and builds the Vite
+  frontend. `includeFiles` bundles the sample DB, the backend package, and `apps/web/dist`.
 
 ### Steps
-1. Push the repo to GitHub and "Import Project" in Vercel.
-2. **Project settings:** Root Directory = repo root; leave Build/Output to `vercel.json`.
-   Set the Python runtime to **3.12** (the code uses 3.12 features).
-3. **Environment variables:**
+1. Commit and push to GitHub, then import the repo in Vercel (or redeploy an existing project).
+2. **Project settings:** Framework Preset = **FastAPI**, Root Directory = repo root. Leave the
+   build and output settings to `vercel.json`.
+3. **Environment variables** (Production and Preview):
    | Name | Value |
    |---|---|
    | `GEMINI_API_KEY` | your key |
@@ -27,21 +30,17 @@ Files already in the repo: `vercel.json`, `api/index.py` (ASGI entry), `requirem
    | `GEMINI_MODEL_CORE` | e.g. `gemini-3.8-flash` |
    | `GEMINI_MODEL_PRO` | e.g. `gemini-3.8-flash` |
    | `ENVIRONMENT` | `production` |
-   | `APP_DB_DIR` | `/tmp` (also defaulted in `api/index.py`) |
-4. Deploy, then smoke-test `/(health)` and a `/api/chat` request.
+4. Deploy, then check `/health`, the root page, and a chat request.
 
-### Constraints to know (important)
-- **Function timeout.** The agent makes several Gemini calls per turn (classify → generate →
-  validate → maybe repair → explain). On the **Hobby plan the limit is 10s**, which this can
-  exceed — use **Pro (60s)** or expect occasional timeouts. Keep execution enabled but lean on
-  the cheaper model tiers.
-- **Read-only filesystem.** Only `/tmp` is writable, so conversation history lives in `/tmp`:
-  it is **per-instance and ephemeral** (lost on cold start / across instances). The sample query
-  DB is read-only and bundled, so queries are unaffected.
-- **Streaming.** Python serverless responses may be buffered, so SSE can arrive in one chunk —
-  the UI still renders the final result correctly, it just may not show live stage updates.
-- **Bundle size / cold starts.** LangGraph + LangChain + google-genai + SQLGlot is sizeable;
-  first-request cold starts are slower.
+### Constraints to know
+- **Function duration.** A turn makes several Gemini calls (classify → generate → validate →
+  maybe repair → explain). Fluid compute's default limit is generous, but a slow model call
+  can still hit it; add `"maxDuration"` under `functions."index.py"` in `vercel.json` to tune.
+- **Read-only filesystem.** Only `/tmp` is writable, so conversation history is **per-instance
+  and ephemeral**. The UI keeps its own history and starts a fresh server conversation when
+  the old one is gone; the sample query DB is read-only and bundled, so queries are unaffected.
+- **Cold starts.** LangGraph + LangChain + google-genai + SQLGlot is sizeable, so the first
+  request after idle is slower.
 
 ## Option B — Docker on a container host (more robust)
 

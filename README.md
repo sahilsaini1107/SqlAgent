@@ -155,7 +155,7 @@ statements accepted**, plus a rate-limit-aware live smoke harness at
 ## Deployment
 
 See **`docs/DEPLOY.md`**. Options: full-stack on **Vercel** (SPA + Python serverless API —
-scaffold in `vercel.json` / `api/index.py`), or a single **Docker** container on a persistent
+scaffold in `vercel.json` / `index.py`), or a single **Docker** container on a persistent
 host (Render/Fly/Railway) via the multi-stage `Dockerfile`. Note the serverless function-timeout
 and read-only-filesystem constraints documented there.
 
