@@ -155,6 +155,8 @@ class SqlValidator:
     def _check_columns(self, expr: exp.Expression, binding: _Binding) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
         has_derived = bool(binding.derived_aliases) or expr.find(exp.Subquery) is not None
+        # Output aliases may be referenced by name in ORDER BY / HAVING (e.g. ORDER BY late_pct).
+        output_aliases = {a.alias.lower() for a in expr.find_all(exp.Alias) if a.alias}
         for col in expr.find_all(exp.Column):
             qualifier = col.table.lower()
             name = col.name
@@ -171,6 +173,8 @@ class SqlValidator:
                 continue
             if has_derived or not binding.base_tables:
                 continue  # too complex to resolve safely; EXPLAIN is the backstop
+            if name.lower() in output_aliases:
+                continue
             owners = [t for t in binding.base_tables if self._catalog.has_column(t, name)]
             if not owners:
                 issues.append(ValidationIssue("UNKNOWN_COLUMN", f"Unknown column '{name}'."))

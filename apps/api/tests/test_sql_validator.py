@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from app.db.build import build_sample_db
 from app.domain.schema_catalog import SchemaCatalog
 from app.domain.sql_validator import SqlValidator
 from app.domain.validation import ValidationResult
@@ -14,8 +13,8 @@ from app.infra.sqlite_adapter import SqliteReadOnlyAdapter
 
 
 @pytest.fixture
-def validator(tmp_path: Path) -> SqlValidator:
-    db = build_sample_db(tmp_path / "v.sqlite")
+def validator(sample_db: Path) -> SqlValidator:
+    db = sample_db
     catalog = SchemaCatalog.from_sqlite(db)
     adapter = SqliteReadOnlyAdapter(db)
     return SqlValidator(catalog, execute_check=adapter.explain)
@@ -27,10 +26,29 @@ def _codes(result: ValidationResult) -> set[str]:
 
 VALID = [
     "SELECT * FROM customers",
-    "SELECT id, name FROM customers WHERE state = 'CA'",
+    "SELECT id, name FROM customers WHERE email LIKE '%@example.com'",
     "SELECT c.name, COUNT(*) FROM customers c "
     "JOIN orders o ON o.customer_id = c.id GROUP BY c.name",
-    "SELECT SUM(quantity * unit_price) AS revenue FROM order_items",
+    "SELECT SUM(quantity * unit_price * (1 - discount)) AS revenue FROM order_items",
+    "SELECT c.name FROM customers c "
+    "JOIN addresses a ON a.customer_id = c.id WHERE a.state = 'CA'",
+    "SELECT p.name, AVG(r.rating) AS avg_rating FROM products p "
+    "JOIN reviews r ON r.product_id = p.id GROUP BY p.name",
+    # ORDER BY / HAVING on an output alias
+    "SELECT carrier, AVG(delivered_at > promised_at) AS late_rate FROM shipments "
+    "GROUP BY carrier HAVING late_rate > 0.05 ORDER BY late_rate DESC",
+    # window functions
+    "SELECT id, customer_id, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY placed_at) AS n "
+    "FROM orders",
+    "SELECT customer_id, placed_at, "
+    "julianday(placed_at) - julianday(LAG(placed_at) OVER (PARTITION BY customer_id "
+    "ORDER BY placed_at)) AS days_since_previous FROM orders",
+    "SELECT name, NTILE(4) OVER (ORDER BY price) AS price_quartile FROM products",
+    # recursive CTE over the category hierarchy
+    "WITH RECURSIVE tree(id, name, depth) AS ("
+    "SELECT id, name, 0 FROM categories WHERE parent_id IS NULL "
+    "UNION ALL SELECT c.id, c.name, t.depth + 1 FROM categories c JOIN tree t ON c.parent_id = t.id"
+    ") SELECT * FROM tree",
 ]
 
 
@@ -44,8 +62,8 @@ def test_valid_queries_pass(validator: SqlValidator, sql: str) -> None:
 FORBIDDEN = [
     "DROP TABLE customers",
     "DELETE FROM customers",
-    "UPDATE customers SET state = 'CA'",
-    "INSERT INTO customers (id, name) VALUES (99, 'x')",
+    "UPDATE customers SET email = 'x'",
+    "INSERT INTO customers (id, name, email) VALUES (99, 'x', 'x@y.z')",
     "ALTER TABLE customers ADD COLUMN x TEXT",
     "TRUNCATE TABLE customers",
     "CREATE TABLE t (id INTEGER)",
