@@ -154,10 +154,10 @@ statements accepted**, plus a rate-limit-aware live smoke harness at
 
 ## Deployment
 
-See **`docs/DEPLOY.md`**. Options: full-stack on **Vercel** (SPA + Python serverless API —
-scaffold in `vercel.json` / `index.py`), or a single **Docker** container on a persistent
-host (Render/Fly/Railway) via the multi-stage `Dockerfile`. Note the serverless function-timeout
-and read-only-filesystem constraints documented there.
+The frontend deploys to **Vercel** (`apps/web`, static) and the backend to **Render** as a
+Docker web service (`render.yaml` + `Dockerfile`). The frontend calls the backend at
+`VITE_API_BASE`, and the backend allows that origin via `CORS_ORIGINS`. Step-by-step setup,
+free-tier caveats and troubleshooting are in **`docs/DEPLOY.md`**.
 
 ## Project structure
 
