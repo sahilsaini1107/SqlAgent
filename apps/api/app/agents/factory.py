@@ -23,7 +23,16 @@ def _client_for_model(model: str) -> GeminiLLMClient:
 
 
 def default_router() -> ModelRouter:
-    return ModelRouter(default_model=settings.gemini_model)
+    # Per-node tiering. Nodes absent from ``overrides`` fall through to the Flash-Lite default
+    # (classify, explain) — the high-volume, latency-sensitive path. Core SQL work runs on the
+    # stronger Flash tier. Pro stays opt-in; map a node to ``gemini_model_pro`` here to use it.
+    core = settings.gemini_model_core
+    overrides = {
+        "generate": core,
+        "repair": core,
+        "optimize": core,
+    }
+    return ModelRouter(default_model=settings.gemini_model, overrides=overrides)
 
 
 def default_client_for() -> Callable[[str], LLMClient]:
