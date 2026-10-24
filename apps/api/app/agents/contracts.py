@@ -34,3 +34,7 @@ class GeneratedSQL(BaseModel):
     sql: str | None = None
     assumptions: list[str] = Field(default_factory=list)
     clarification: str | None = None
+
+
+class Explanation(BaseModel):
+    explanation: str
