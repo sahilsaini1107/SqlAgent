@@ -19,6 +19,22 @@ class ResultView(BaseModel):
     duration_ms: float
 
 
+class UsageCall(BaseModel):
+    node: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    latency_ms: float
+
+
+class UsageView(BaseModel):
+    calls: list[UsageCall] = Field(default_factory=list)
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    llm_calls: int = 0
+
+
 class ChatResponse(BaseModel):
     conversation_id: str
     trace_id: str
@@ -34,6 +50,8 @@ class ChatResponse(BaseModel):
     # SQL dialect the `sql` field is rendered in, and the query plan (cost estimate).
     dialect: str = "sqlite"
     plan: list[str] | None = None
+    # Per-LLM-call token/latency telemetry for this turn.
+    usage: UsageView | None = None
 
 
 class MessageView(BaseModel):

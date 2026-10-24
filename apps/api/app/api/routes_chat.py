@@ -17,6 +17,8 @@ from app.schemas.responses import (
     ConversationHistory,
     MessageView,
     ResultView,
+    UsageCall,
+    UsageView,
     ValidationView,
 )
 
@@ -33,6 +35,28 @@ def _resolve_conversation(store: SessionStore, conversation_id: str | None) -> s
     if not store.conversation_exists(conversation_id):
         raise HTTPException(status_code=404, detail="conversation not found")
     return conversation_id
+
+
+def _usage_view(usages: list[dict[str, Any]]) -> UsageView:
+    calls = [
+        UsageCall(
+            node=str(u.get("node", "")),
+            model=str(u.get("model", "")),
+            input_tokens=int(u.get("input_tokens", 0)),
+            output_tokens=int(u.get("output_tokens", 0)),
+            latency_ms=float(u.get("latency_ms", 0.0)),
+        )
+        for u in usages
+    ]
+    input_tokens = sum(c.input_tokens for c in calls)
+    output_tokens = sum(c.output_tokens for c in calls)
+    return UsageView(
+        calls=calls,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=input_tokens + output_tokens,
+        llm_calls=len(calls),
+    )
 
 
 def _transpile(sql: str, dialect: str) -> str:
@@ -167,4 +191,5 @@ def _to_response(
         result=ResultView(**result) if result else None,
         dialect=dialect,
         plan=state.get("query_plan"),
+        usage=_usage_view(state.get("usages", [])),
     )

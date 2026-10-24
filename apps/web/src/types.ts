@@ -32,6 +32,23 @@ export interface ChatResponse {
   result: ResultView | null;
   dialect: string;
   plan: string[] | null;
+  usage: UsageView | null;
+}
+
+export interface UsageCall {
+  node: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  latency_ms: number;
+}
+
+export interface UsageView {
+  calls: UsageCall[];
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  llm_calls: number;
 }
 
 export type Dialect = "sqlite" | "postgres" | "mysql";

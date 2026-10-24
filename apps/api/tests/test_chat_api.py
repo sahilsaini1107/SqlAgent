@@ -173,6 +173,15 @@ def test_plan_present_for_validated_query(make_client: ClientFactory) -> None:
     assert any("customers" in step.lower() for step in body["plan"])
 
 
+def test_usage_is_reported(make_client: ClientFactory) -> None:
+    client = make_client(ScriptedLLM(Classification(intent="generate", confidence=0.9)))
+    body = client.post("/api/chat", json={"message": "all customers"}).json()
+    usage = body["usage"]
+    assert usage["llm_calls"] >= 2  # classify + generate (+ explain)
+    assert usage["total_tokens"] == usage["input_tokens"] + usage["output_tokens"]
+    assert "classify" in {c["node"] for c in usage["calls"]}
+
+
 def test_dialect_transpiles_output(make_client: ClientFactory) -> None:
     client = make_client(
         ScriptedLLM(

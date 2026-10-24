@@ -146,6 +146,33 @@ function Details({ turn }: { turn: AssistantTurn }) {
         <PipelineTrace stages={turn.stages} elapsedMs={turn.elapsedMs} />
       </section>
 
+      {r.usage && r.usage.llm_calls > 0 && (
+        <section>
+          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+            Token usage
+          </h4>
+          <p className="mb-2 text-xs text-zinc-600 dark:text-zinc-300">
+            <span className="font-mono text-zinc-800 dark:text-zinc-200">
+              {r.usage.total_tokens.toLocaleString()}
+            </span>{" "}
+            tokens across {r.usage.llm_calls} LLM call{r.usage.llm_calls === 1 ? "" : "s"} (
+            {r.usage.input_tokens.toLocaleString()} in / {r.usage.output_tokens.toLocaleString()} out)
+          </p>
+          <ul className="space-y-0.5 font-mono text-[11px] text-zinc-500">
+            {r.usage.calls.map((c, i) => (
+              <li key={i} className="flex items-center justify-between gap-2">
+                <span className="truncate">
+                  {c.node} · {c.model}
+                </span>
+                <span className="shrink-0">
+                  {c.input_tokens}+{c.output_tokens} · {Math.round(c.latency_ms)}ms
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section>
         <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
           <IconShield size={12} /> Validation
