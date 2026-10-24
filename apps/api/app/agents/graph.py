@@ -79,15 +79,29 @@ def build_agent_graph(
         return {"schema_summary": schema_summary, "status": "classifying"}
 
     def classify(state: AgentState) -> dict[str, Any]:
-        data, usage = run_classify(state["user_input"], client_for("classify"))
-        return {"intent": data.intent, "usages": [_usage_record("classify", usage)]}
+        data, usage = run_classify(
+            state["user_input"],
+            client_for("classify"),
+            history=state.get("conversation_history", ""),
+        )
+        update: dict[str, Any] = {
+            "intent": data.intent,
+            # Follow-ups ("by revenue") are resolved against the conversation into a
+            # self-contained request; everything downstream works from that.
+            "resolved_request": data.standalone_request.strip() or state["user_input"],
+            "usages": [_usage_record("classify", usage)],
+        }
+        if data.intent == "clarify" and data.clarification:
+            update["clarification"] = data.clarification
+        return update
 
     def generate(state: AgentState) -> dict[str, Any]:
         data, usage = run_generate(
-            user_input=state["user_input"],
+            user_input=state.get("resolved_request") or state["user_input"],
             schema_summary=state.get("schema_summary", schema_summary),
             previous_sql=state.get("previous_valid_sql"),
             client=client_for("generate"),
+            history=state.get("conversation_history", ""),
         )
         record = _usage_record("generate", usage)
         if data.clarification:
@@ -151,7 +165,7 @@ def build_agent_graph(
 
     def answer(state: AgentState) -> dict[str, Any]:
         data, usage = run_answer(
-            user_input=state["user_input"],
+            user_input=state.get("resolved_request") or state["user_input"],
             schema_summary=state.get("schema_summary", schema_summary),
             client=client_for("explain"),
         )
@@ -174,7 +188,7 @@ def build_agent_graph(
 
     def repair(state: AgentState) -> dict[str, Any]:
         data, usage = run_repair(
-            user_input=state["user_input"],
+            user_input=state.get("resolved_request") or state["user_input"],
             schema_summary=state.get("schema_summary", schema_summary),
             failed_sql=state.get("candidate_sql") or "",
             issues=state.get("validation_issues", []),
@@ -213,7 +227,12 @@ def build_agent_graph(
         return {"refusal": reason, "status": "refused"}
 
     def clarify(state: AgentState) -> dict[str, Any]:
-        return {"status": "clarification_required"}
+        if state.get("clarification"):
+            return {"status": "clarification_required"}
+        return {
+            "clarification": "Could you tell me a bit more about what you'd like to see?",
+            "status": "clarification_required",
+        }
 
     def route_intent(state: AgentState) -> str:
         intent = state.get("intent", "out_of_scope")

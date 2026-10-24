@@ -8,6 +8,7 @@ import sqlglot
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
+from app.agents.context import format_history, is_rewritten
 from app.dependencies import get_graph, get_session_store
 from app.infra.session_store import SessionStore
 from app.observability.logging import trace_id_var
@@ -77,6 +78,7 @@ def chat(
 ) -> ChatResponse:
     conversation_id = _resolve_conversation(store, req.conversation_id)
     previous_sql = store.last_validated_sql(conversation_id)
+    history = format_history(store.get_history(conversation_id))
     store.add_message(conversation_id, "user", content=req.message)
 
     state: dict[str, Any] = graph.invoke(
@@ -84,10 +86,13 @@ def chat(
             "user_input": req.message,
             "execution_requested": req.execute,
             "previous_valid_sql": previous_sql,
+            "conversation_history": history,
         }
     )
 
-    response = _to_response(conversation_id, state, trace_id_var.get(), req.dialect)
+    response = _to_response(
+        conversation_id, state, trace_id_var.get(), req.dialect, user_input=req.message
+    )
     _persist_assistant(store, conversation_id, response, canonical_sql=state.get("final_sql"))
     return response
 
@@ -100,6 +105,7 @@ def chat_stream(
 ) -> StreamingResponse:
     conversation_id = _resolve_conversation(store, req.conversation_id)
     previous_sql = store.last_validated_sql(conversation_id)
+    history = format_history(store.get_history(conversation_id))
     store.add_message(conversation_id, "user", content=req.message)
     trace_id = trace_id_var.get()  # captured here; the context resets before the body streams
     dialect = req.dialect
@@ -107,6 +113,7 @@ def chat_stream(
         "user_input": req.message,
         "execution_requested": req.execute,
         "previous_valid_sql": previous_sql,
+        "conversation_history": history,
     }
 
     def event_stream() -> Iterator[str]:
@@ -117,7 +124,9 @@ def chat_stream(
             status = state.get("status")
             if status:
                 yield _sse("stage", {"status": status})
-        response = _to_response(conversation_id, final_state, trace_id, dialect)
+        response = _to_response(
+            conversation_id, final_state, trace_id, dialect, user_input=req.message
+        )
         _persist_assistant(
             store, conversation_id, response, canonical_sql=final_state.get("final_sql")
         )
@@ -168,9 +177,15 @@ def delete_conversation(
 
 
 def _to_response(
-    conversation_id: str, state: dict[str, Any], trace_id: str, dialect: str = "sqlite"
+    conversation_id: str,
+    state: dict[str, Any],
+    trace_id: str,
+    dialect: str = "sqlite",
+    *,
+    user_input: str = "",
 ) -> ChatResponse:
     issues = state.get("validation_issues", [])
+    resolved = state.get("resolved_request") or ""
     result = state.get("query_result")
     final_sql = state.get("final_sql")
     return ChatResponse(
@@ -192,4 +207,5 @@ def _to_response(
         dialect=dialect,
         plan=state.get("query_plan"),
         usage=_usage_view(state.get("usages", [])),
+        interpreted_as=resolved if user_input and is_rewritten(user_input, resolved) else None,
     )

@@ -127,7 +127,6 @@ def test_timeout_interrupts_unbounded_recursive_query(audit_env):
         )
 
 
-@pytest.mark.xfail(strict=True, reason="clarify terminal node returns no clarification question")
 def test_clarify_intent_returns_a_question(audit_env):
     build, _, _, _ = audit_env
     state = build(RecordingLLM("clarify")).invoke({"user_input": "Show me the best"})

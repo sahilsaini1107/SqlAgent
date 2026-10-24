@@ -28,6 +28,11 @@ class Classification(BaseModel):
     intent: Intent
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     reason: str = ""
+    # The latest message rewritten as a self-contained request using the conversation so far;
+    # empty when the message already stands on its own.
+    standalone_request: str = ""
+    # The question to ask the user when intent is "clarify".
+    clarification: str = ""
 
 
 class GeneratedSQL(BaseModel):

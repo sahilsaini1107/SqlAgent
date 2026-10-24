@@ -11,17 +11,24 @@ def run_generate(
     schema_summary: str,
     previous_sql: str | None,
     client: LLMClient,
+    history: str = "",
 ) -> tuple[GeneratedSQL, LLMUsage]:
     system = load_prompt("generate").format(schema=schema_summary)
-    user = _build_user_message(user_input, previous_sql)
+    user = _build_user_message(user_input, previous_sql, history)
     result = client.structured(system=system, user=user, schema=GeneratedSQL)
     return result.data, result.usage
 
 
-def _build_user_message(user_input: str, previous_sql: str | None) -> str:
+def _build_user_message(user_input: str, previous_sql: str | None, history: str) -> str:
+    parts: list[str] = []
+    if history:
+        parts.append(f"Conversation so far (oldest first):\n{history}")
     if previous_sql:
-        return (
-            f"Previous query:\n{previous_sql}\n\n"
-            f"Modify it to satisfy this request:\n{user_input}"
+        parts.append(
+            "Previous query (refine it only if the request builds on it; otherwise write a new "
+            f"query):\n{previous_sql}"
         )
-    return user_input
+    if not parts:
+        return user_input
+    parts.append(f"Request:\n{user_input}")
+    return "\n\n".join(parts)

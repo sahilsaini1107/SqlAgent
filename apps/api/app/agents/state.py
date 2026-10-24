@@ -16,6 +16,10 @@ class AgentState(TypedDict, total=False):
     user_input: str
     previous_valid_sql: str | None
     execution_requested: bool
+    conversation_history: str
+
+    # Context resolution: the latest message as a self-contained request (from classify).
+    resolved_request: str
 
     # Context
     schema_summary: str

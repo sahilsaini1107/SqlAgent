@@ -52,6 +52,9 @@ class ChatResponse(BaseModel):
     plan: list[str] | None = None
     # Per-LLM-call token/latency telemetry for this turn.
     usage: UsageView | None = None
+    # The request as the agent understood it, when it differs from the message (a follow-up
+    # resolved against the conversation, or a vague prompt made explicit).
+    interpreted_as: str | None = None
 
 
 class MessageView(BaseModel):
