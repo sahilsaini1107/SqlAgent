@@ -14,8 +14,8 @@ and **React + TypeScript** (frontend).
 
 ## Live demo
 
-- **App:**  <[https://sql-agent-api-pza5.onrender.com](https://sql-agent-api-pza5.onrender.com/)> 
-- **Demo video:** _<3–5 min walkthrough — add link>_
+- **App:**  [Site](https://sql-agent-api-pza5.onrender.com/) 
+- **Demo video:** [DemoVideo](https://drive.google.com/file/d/1_66N22BW7PeMiOHOxbek3Ki_DyUzyYNf/view?usp=sharing)
 
 ## Features
 
