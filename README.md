@@ -154,10 +154,12 @@ statements accepted**, plus a rate-limit-aware live smoke harness at
 
 ## Deployment
 
-The frontend deploys to **Vercel** (`apps/web`, static) and the backend to **Render** as a
-Docker web service (`render.yaml` + `Dockerfile`). The frontend calls the backend at
-`VITE_API_BASE`, and the backend allows that origin via `CORS_ORIGINS`. Step-by-step setup,
-free-tier caveats and troubleshooting are in **`docs/DEPLOY.md`**.
+**Live:** <https://sql-agent-api-pza5.onrender.com> (free tier: the first visit after ~15
+minutes idle takes up to a minute to wake).
+
+The app runs as one **Render** Docker web service (`render.yaml` + `Dockerfile`) that serves
+the frontend and the API from the same origin. Hosting the frontend on Vercel instead is
+optional. Setup, free-tier caveats and troubleshooting are in **`docs/DEPLOY.md`**.
 
 ## Project structure
 
