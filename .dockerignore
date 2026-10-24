@@ -1,0 +1,14 @@
+.git
+.github
+**/.venv
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/*.sqlite
+**/*.sqlite3
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+.env
+.env.*
