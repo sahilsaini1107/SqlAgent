@@ -154,7 +154,7 @@ statements accepted**, plus a rate-limit-aware live smoke harness at
 
 ## Deployment
 
-**Live:** <https://sql-agent-api-pza5.onrender.com> (free tier: the first visit after ~15
+**Live:** <[https://sql-agent-api-pza5.onrender.com](https://sql-agent-api-pza5.onrender.com/)> (free tier: the first visit after ~15
 minutes idle takes up to a minute to wake).
 
 The app runs as one **Render** Docker web service (`render.yaml` + `Dockerfile`) that serves
