@@ -1,5 +1,13 @@
 import type { ChatResponse, SchemaView } from "../types";
 
+// Backend origin, baked in at build time (e.g. https://sql-agent-api.onrender.com). Empty in
+// local dev, where the Vite proxy forwards same-origin /api and /health to the backend.
+const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
+
+function url(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -26,11 +34,11 @@ async function parseJson<T>(res: Response): Promise<T> {
 }
 
 export async function fetchSchema(): Promise<SchemaView> {
-  return parseJson<SchemaView>(await fetch("/api/schema"));
+  return parseJson<SchemaView>(await fetch(url("/api/schema")));
 }
 
 export async function fetchHealth(): Promise<{ status: string; version: string }> {
-  return parseJson(await fetch("/health"));
+  return parseJson(await fetch(url("/health")));
 }
 
 export interface StreamHandlers {
@@ -60,7 +68,7 @@ export async function postChatStream(
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch("/api/chat/stream", {
+  const res = await fetch(url("/api/chat/stream"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, conversation_id: conversationId, execute }),
@@ -84,7 +92,6 @@ export async function postChatStream(
 
 export function deleteServerConversation(conversationId: string): void {
   // Best-effort cleanup; local history is the source of truth for the UI.
-  fetch(`/api/conversations/${encodeURIComponent(conversationId)}`, { method: "DELETE" }).catch(
-    () => undefined,
-  );
+  const path = `/api/conversations/${encodeURIComponent(conversationId)}`;
+  fetch(url(path), { method: "DELETE" }).catch(() => undefined);
 }
