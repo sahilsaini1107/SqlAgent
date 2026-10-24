@@ -33,6 +33,8 @@ export interface ChatResponse {
   dialect: string;
   plan: string[] | null;
   usage: UsageView | null;
+  /** The request as the agent understood it, when it rewrote a follow-up or vague prompt. */
+  interpreted_as?: string | null;
 }
 
 export interface UsageCall {

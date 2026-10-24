@@ -243,6 +243,15 @@ function AssistantCard({
           </div>
 
           <div className="space-y-3 px-4 pb-4 pt-2.5">
+            {r.interpreted_as && (
+              <p className="flex items-start gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                <IconSparkles size={12} className="mt-0.5 shrink-0 text-accent-500 dark:text-accent-400" />
+                <span>
+                  Interpreted as{" "}
+                  <span className="font-medium text-zinc-700 dark:text-zinc-200">“{r.interpreted_as}”</span>
+                </span>
+              </p>
+            )}
             <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800 dark:text-zinc-100">
               {shown}
               {!done && <span className="animate-blink ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 bg-accent-500" />}
