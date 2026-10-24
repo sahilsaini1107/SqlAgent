@@ -5,37 +5,81 @@ questions into validated SQL against a known database schema, explains the query
 run it safely. It specialises in SQL/database tasks and politely refuses anything else.
 
 Built with **LangGraph** (agent orchestration), **FastAPI** (backend), **SQLGlot**
-(deterministic SQL validation), **SQLite** (sample database), and **React + TypeScript**
-(frontend).
+(deterministic SQL validation), **SQLite** (sample database), **Gemini** (`langchain-google-genai`),
+and **React + TypeScript** (frontend).
 
 > **Safety first:** the model proposes SQL; deterministic code and a read-only database
 > layer decide. Destructive statements (`DELETE/UPDATE/INSERT/DROP/ALTER/TRUNCATE`) are
 > never generated or executed.
 
-## Status
+## Live demo
 
-Early development. See milestones in the engineering plan.
+- **App:** _<deployed link — add after deploying; see `docs/DEPLOY.md`>_
+- **Demo video:** _<3–5 min walkthrough — add link>_
 
-## Repository layout
+## Features
+
+**Core**
+- Natural language → SQL, grounded in the provided schema.
+- Deterministic validation before anything is returned: tables, columns, joins, syntax, and a
+  strict read-only policy (see `docs/architecture.md`).
+- Plain-English explanation of every generated query.
+- SQL **optimization** (equivalent, cleaner rewrite + advisory index notes) and **debugging**
+  (fix a pasted query and explain the change).
+- Conversation context — follow-ups modify the last *validated* query ("only California").
+- Refuses out-of-scope and destructive requests; asks for clarification when ambiguous.
+- UI: chat, SQL panel, explanation panel, results table, conversation history, loading/error
+  states, and copy-SQL — all required panels.
+
+**Bonus (implemented)**
+- Query execution against the sample database, with row cap + timeout.
+- SQL **syntax highlighting**, **streaming** responses, **dark mode**.
+- **CSV / SQL download**, result latency surfaced.
+- Prompt-injection handling (user text treated as data; enforced by the code gate + DB layer).
+- **Dockerized** deployment; unit, integration, and adversarial tests.
+
+**Roadmap:** multiple SQL dialects (PostgreSQL) behind the existing `DatabaseAdapter` boundary.
+
+## How it works
 
 ```
-apps/api/   FastAPI backend + LangGraph agent
-apps/web/   React + TypeScript frontend
-data/       sample schema and seed
-evals/      golden evaluation set
+user → classify → (refuse | clarify | answer | optimize | generate)
+generate/optimize → validate → (repair ≤2 → validate) → execute? → explain → respond
 ```
 
-## Development
+A typed LangGraph `StateGraph` routes each request. The LLM only ever produces a *candidate*
+query; the **validation gate** (SQLGlot AST + schema binding + join checks + real-engine
+`EXPLAIN`) and the **read-only SQLite sandbox** (`mode=ro` + `query_only` + authorizer +
+timeout + row cap) are independent, deterministic layers that sit after the model. Per-node
+telemetry (model, tokens, latency) is recorded for traceability, and nodes are routed across
+Gemini tiers for cost efficiency (cheap tier for classify/explain, stronger tier for SQL work).
+
+Full details: **`docs/architecture.md`** (diagrams + trust boundaries) and **`docs/prompts.md`**
+(every prompt and its output schema).
+
+## Quick start (local)
+
+Prerequisites: **Python 3.12**, **Node 22**, and [**uv**](https://docs.astral.sh/uv/).
 
 ### Backend
 
 ```bash
 cd apps/api
 uv sync
-uv run python -m app.db.build   # generate data/sample.sqlite (deterministic, ~2 s)
+uv run python -m app.db.build   # generate data/sample.sqlite (deterministic)
 uv run uvicorn app.main:app --reload
-# -> http://127.0.0.1:8000/health
+# -> http://127.0.0.1:8000/health   ·   API docs at /docs
 ```
+
+### Frontend
+
+```bash
+cd apps/web
+npm install
+npm run dev     # http://localhost:5173 — proxies /api and /health to the backend
+```
+
+Set `GEMINI_API_KEY` in `.env` first (see Configuration) or chat requests will fail.
 
 ### Sample database
 
@@ -59,14 +103,6 @@ holidays, summer), late deliveries drive support tickets, and loyalty tiers come
 spend. Column comments in `schema.sql` (allowed values, currencies, formulas) are passed to the
 agent with the schema. Rebuild after changing the schema or generator.
 
-Run checks:
-
-```bash
-uv run pytest
-uv run ruff check .
-uv run mypy app
-```
-
 ## Configuration
 
 Copy `.env.example` to `.env` and fill in your values. `.env` is git-ignored — never commit
@@ -80,3 +116,77 @@ real credentials.
 | `GEMINI_MODEL_PRO` | Complex synthesis tier, reserved/opt-in (default `gemini-3.8-flash`) |
 | `ENVIRONMENT` | `development` / `production` |
 | `LOG_LEVEL` | Log level |
+| `APP_DB_DIR` | Writable dir for the conversation DB (set to `/tmp` on serverless) |
+
+## API
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Liveness probe |
+| `GET` | `/api/schema` | Authorized schema metadata (tables, columns, FKs) |
+| `POST` | `/api/chat` | Send a message; returns validated SQL, explanation, and (optional) results |
+| `POST` | `/api/chat/stream` | Same, as a Server-Sent Events stream (stage updates + final result) |
+| `GET` | `/api/conversations/{id}` | Conversation transcript |
+| `DELETE` | `/api/conversations/{id}` | Delete a conversation |
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Top 5 products by total revenue", "execute": true}'
+```
+
+The response includes `sql`, `explanation`, `validation` (passed/issues/warnings), optional
+`result` (columns/rows/row_count/truncated), `status`, and a `trace_id`.
+
+## Testing & quality
+
+```bash
+cd apps/api
+uv run pytest          # unit, integration, and adversarial safety tests
+uv run ruff check .    # lint
+uv run mypy app        # strict type-check
+```
+
+The suite includes an **adversarial regression** (DROP/DELETE/…, multi-statement, ATTACH,
+CTE-wrapped writes, prompt injection, disallowed functions) with a target of **0 unsafe
+statements accepted**, plus a rate-limit-aware live smoke harness at
+`apps/api/scripts/smoke_live.py` for checking the real agent against the dataset.
+
+## Deployment
+
+See **`docs/DEPLOY.md`**. Options: full-stack on **Vercel** (SPA + Python serverless API —
+scaffold in `vercel.json` / `api/index.py`), or a single **Docker** container on a persistent
+host (Render/Fly/Railway) via the multi-stage `Dockerfile`. Note the serverless function-timeout
+and read-only-filesystem constraints documented there.
+
+## Project structure
+
+```
+apps/api/      FastAPI backend + LangGraph agent
+  app/agents/    graph, nodes, prompts, model router, LLM client
+  app/domain/    schema catalog, SQL validator, query policy
+  app/infra/     read-only SQLite adapter, session store
+  app/db/        schema builder + deterministic seed generator
+  tests/         unit, integration, adversarial, data-integrity
+apps/web/      React + TypeScript + Vite + Tailwind frontend
+data/          schema.sql (sample e-commerce schema)
+docs/          architecture, prompts, deployment
+api/           Vercel serverless entrypoint
+```
+
+## Assumptions
+
+- The 28-table e-commerce schema is **synthetic**, standing in for a schema that would
+  otherwise be provided; it is never claimed to be an official one.
+- "Read-only" means a single `SELECT` / `WITH` / `UNION` of selects; index suggestions are
+  advisory text only (never executed).
+- SQLite is the MVP dialect; PostgreSQL is a planned extension behind the adapter boundary.
+- On serverless hosting, conversation history lives in `/tmp` and is per-instance/ephemeral.
+- Safety is **tested**, not formally proven; see the adversarial suite and `docs/architecture.md`.
+
+## Security
+
+Defense in depth: user text is treated as data (never instructions); result rows never return
+to the LLM; a deterministic AST gate and an independent read-only database layer (authorizer +
+`query_only` + timeout + row cap) both sit after the model; CSV export neutralises spreadsheet
+formula injection; secrets live only in environment variables. Details in `docs/architecture.md`.
