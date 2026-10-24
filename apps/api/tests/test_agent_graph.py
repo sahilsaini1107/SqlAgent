@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from app.agents.contracts import Classification, Explanation, GeneratedSQL
 from app.agents.graph import build_agent_graph
 from app.agents.llm import LLMUsage, StructuredResult
-from app.db.build import build_sample_db
+from app.db.seed_data import WAREHOUSES
 from app.domain.schema_catalog import SchemaCatalog
 from app.domain.sql_validator import SqlValidator
 from app.infra.sqlite_adapter import SqliteReadOnlyAdapter
@@ -45,8 +45,8 @@ class FakeLLM:
 
 
 @pytest.fixture
-def deps(tmp_path: Path):
-    db = build_sample_db(tmp_path / "g.sqlite")
+def deps(sample_db: Path):
+    db = sample_db
     catalog = SchemaCatalog.from_sqlite(db)
     adapter = SqliteReadOnlyAdapter(db)
     validator = SqlValidator(catalog, execute_check=adapter.explain)
@@ -134,8 +134,8 @@ def test_execution_returns_rows(deps) -> None:
     graph = _graph(
         deps,
         Classification(intent="generate", confidence=0.9),
-        [GeneratedSQL(sql="SELECT id FROM customers ORDER BY id")],
+        [GeneratedSQL(sql="SELECT id FROM warehouses ORDER BY id")],
     )
     out = graph.invoke({"user_input": "list ids", "execution_requested": True})
     assert out["status"] == "executed"
-    assert out["query_result"]["row_count"] == 8
+    assert out["query_result"]["row_count"] == len(WAREHOUSES)

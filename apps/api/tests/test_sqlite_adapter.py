@@ -7,20 +7,22 @@ from pathlib import Path
 
 import pytest
 
-from app.db.build import build_sample_db
+from app.db.seed import N_CUSTOMERS
 from app.domain.query_policy import QueryLimits
 from app.infra.sqlite_adapter import SqliteReadOnlyAdapter
 
 
 @pytest.fixture
-def adapter(tmp_path: Path) -> SqliteReadOnlyAdapter:
-    return SqliteReadOnlyAdapter(build_sample_db(tmp_path / "a.sqlite"))
+def adapter(sample_db: Path) -> SqliteReadOnlyAdapter:
+    return SqliteReadOnlyAdapter(sample_db)
 
 
 def test_select_returns_rows(adapter: SqliteReadOnlyAdapter) -> None:
-    result = adapter.execute_read_only("SELECT id, name FROM customers ORDER BY id", QueryLimits())
+    result = adapter.execute_read_only(
+        "SELECT id, name FROM customers ORDER BY id", QueryLimits(max_rows=N_CUSTOMERS)
+    )
     assert result.columns == ["id", "name"]
-    assert result.row_count == 8
+    assert result.row_count == N_CUSTOMERS
     assert not result.truncated
 
 
@@ -34,7 +36,7 @@ def test_row_cap_truncates(adapter: SqliteReadOnlyAdapter) -> None:
 
 def test_write_is_blocked(adapter: SqliteReadOnlyAdapter) -> None:
     with pytest.raises(sqlite3.Error):
-        adapter.execute_read_only("UPDATE customers SET state = 'ZZ'", QueryLimits())
+        adapter.execute_read_only("UPDATE customers SET email = 'x'", QueryLimits())
 
 
 def test_attach_is_blocked(adapter: SqliteReadOnlyAdapter) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from pydantic import BaseModel
 from app.agents.contracts import Classification, Explanation, GeneratedSQL
 from app.agents.graph import build_agent_graph
 from app.agents.llm import LLMUsage, StructuredResult
-from app.db.build import build_sample_db
+from app.db.seed_data import WAREHOUSES
 from app.dependencies import get_catalog, get_graph, get_session_store
 from app.domain.schema_catalog import SchemaCatalog
 from app.domain.sql_validator import SqlValidator
@@ -50,8 +51,8 @@ ClientFactory = Callable[[ScriptedLLM], TestClient]
 
 
 @pytest.fixture
-def make_client(tmp_path: Path) -> Iterator[ClientFactory]:
-    db = build_sample_db(tmp_path / "q.sqlite")
+def make_client(tmp_path: Path, sample_db: Path) -> Iterator[ClientFactory]:
+    db = sample_db
     catalog = SchemaCatalog.from_sqlite(db)
     adapter = SqliteReadOnlyAdapter(db)
     validator = SqlValidator(catalog, execute_check=adapter.explain)
@@ -98,12 +99,12 @@ def test_execution_returns_result(make_client: ClientFactory) -> None:
     client = make_client(
         ScriptedLLM(
             Classification(intent="generate", confidence=0.9),
-            [GeneratedSQL(sql="SELECT id FROM customers ORDER BY id")],
+            [GeneratedSQL(sql="SELECT id FROM warehouses ORDER BY id")],
         )
     )
     body = client.post("/api/chat", json={"message": "list ids", "execute": True}).json()
     assert body["status"] == "executed"
-    assert body["result"]["row_count"] == 8
+    assert body["result"]["row_count"] == len(WAREHOUSES)
 
 
 def test_history_and_followup_context(make_client: ClientFactory) -> None:
@@ -132,4 +133,29 @@ def test_schema_endpoint(make_client: ClientFactory) -> None:
     client = make_client(ScriptedLLM(Classification(intent="generate", confidence=0.9)))
     body = client.get("/api/schema").json()
     assert body["dialect"] == "sqlite"
-    assert {t["name"] for t in body["tables"]} == {"customers", "products", "orders", "order_items"}
+    names = {t["name"] for t in body["tables"]}
+    assert {"customers", "products", "orders", "order_items", "categories", "addresses"} <= names
+    assert len(names) == 28
+
+
+def _parse_sse_result(text: str) -> dict[str, object]:
+    for block in text.strip().split("\n\n"):
+        if block.startswith("event: result"):
+            data = next(
+                line[len("data: ") :]
+                for line in block.splitlines()
+                if line.startswith("data: ")
+            )
+            return json.loads(data)
+    raise AssertionError("no result event in stream")
+
+
+def test_chat_stream_emits_stages_and_result(make_client: ClientFactory) -> None:
+    client = make_client(ScriptedLLM(Classification(intent="generate", confidence=0.9)))
+    resp = client.post("/api/chat/stream", json={"message": "show all customers"})
+    assert resp.status_code == 200
+    assert "event: start" in resp.text
+    assert "event: stage" in resp.text
+    payload = _parse_sse_result(resp.text)
+    assert payload["status"] == "validated"
+    assert payload["sql"]
