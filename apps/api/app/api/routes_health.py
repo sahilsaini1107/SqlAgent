@@ -1,0 +1,15 @@
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+router = APIRouter(tags=["health"])
+
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+
+
+@router.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    """Liveness probe used by the load balancer and the keep-warm ping."""
+    return HealthResponse(status="ok", version="0.1.0")
