@@ -10,6 +10,7 @@ dependencies = [
     "langgraph>=0.2",
     "langchain-core>=0.3",
     "langchain-google-genai>=2.0",
+    "sqlglot>=30.24.0",
 ]
 
 [dependency-groups]
@@ -27,12 +28,15 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["langgraph.*", "langchain_core.*", "langchain_google_genai.*"]
+module = ["langgraph.*", "langchain_core.*", "langchain_google_genai.*", "sqlglot.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
