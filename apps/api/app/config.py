@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     data_dir: Path = _REPO_ROOT / "data"
     sample_db_filename: str = "sample.sqlite"
 
+    # Application database for conversations/messages (separate from the sample query DB).
+    app_db_filename: str = "app.sqlite"
+
+    # Execution limits for the read-only sandbox.
+    max_rows: int = 1000
+    query_timeout_ms: int = 5000
+
     # Built frontend to serve at / (set in the container image; unset in local dev).
     web_dist_dir: Path | None = None
 
@@ -35,6 +42,10 @@ class Settings(BaseSettings):
     @property
     def sample_db_path(self) -> Path:
         return self.data_dir / self.sample_db_filename
+
+    @property
+    def app_db_path(self) -> Path:
+        return self.data_dir / self.app_db_filename
 
 
 settings = Settings()
