@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes_chat import router as chat_router
@@ -13,11 +14,28 @@ def create_app() -> FastAPI:
     configure_logging(settings.log_level, json_logs=settings.environment == "production")
     app = FastAPI(title="SQL Agent API", version="0.1.0")
     app.add_middleware(RequestTraceMiddleware)
+    _allow_frontend_origins(app)
     app.include_router(health_router)
     app.include_router(schema_router)
     app.include_router(chat_router)
     _mount_frontend(app)
     return app
+
+
+def _allow_frontend_origins(app: FastAPI) -> None:
+    """Let a separately hosted frontend (e.g. on Vercel) call the API from the browser."""
+    origins = settings.cors_origin_list
+    if not origins and not settings.cors_origin_regex:
+        return
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_origin_regex=settings.cors_origin_regex,
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Content-Type", "X-Request-ID"],
+        expose_headers=["X-Request-ID"],
+        max_age=600,
+    )
 
 
 def _mount_frontend(app: FastAPI) -> None:

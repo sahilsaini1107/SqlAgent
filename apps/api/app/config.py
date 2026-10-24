@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     # Built frontend to serve at / (set in the container image; unset in local dev).
     web_dist_dir: Path | None = None
 
+    # Browser origins allowed to call the API cross-origin (frontend hosted separately, e.g. on
+    # Vercel). Comma-separated exact origins, plus an optional regex for preview deployments.
+    cors_origins: str = ""
+    cors_origin_regex: str | None = None
+
     # LLM: single provider/key, three tiers. The model_router maps each graph node to one
     # of these tiers (see agents/factory.py). Free-tier design: high-volume routing/prose on
     # Flash-Lite, core SQL work on Flash, Pro reserved for opt-in complex synthesis.
@@ -49,6 +54,10 @@ class Settings(BaseSettings):
     # Complex synthesis tier: reserved, opt-in (tight free-tier caps). Route a node here via
     # GEMINI_MODEL_PRO + an override in default_router() when needed.
     gemini_model_pro: str = "gemini-3.8-flash"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip().rstrip("/") for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def sample_db_path(self) -> Path:
