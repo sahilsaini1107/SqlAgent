@@ -53,3 +53,9 @@ def test_explain_accepts_valid_and_rejects_invalid(adapter: SqliteReadOnlyAdapte
     adapter.explain("SELECT * FROM customers")
     with pytest.raises(sqlite3.Error):
         adapter.explain("SELECT nope FROM customers")
+
+
+def test_explain_plan_returns_steps(adapter: SqliteReadOnlyAdapter) -> None:
+    plan = adapter.explain_plan("SELECT * FROM customers")
+    assert isinstance(plan, list)
+    assert any("customers" in step.lower() for step in plan)

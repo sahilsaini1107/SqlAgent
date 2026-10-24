@@ -159,3 +159,27 @@ def test_chat_stream_emits_stages_and_result(make_client: ClientFactory) -> None
     payload = _parse_sse_result(resp.text)
     assert payload["status"] == "validated"
     assert payload["sql"]
+
+
+def test_plan_present_for_validated_query(make_client: ClientFactory) -> None:
+    client = make_client(
+        ScriptedLLM(
+            Classification(intent="generate", confidence=0.9),
+            [GeneratedSQL(sql="SELECT * FROM customers")],
+        )
+    )
+    body = client.post("/api/chat", json={"message": "all customers"}).json()
+    assert body["plan"] is not None
+    assert any("customers" in step.lower() for step in body["plan"])
+
+
+def test_dialect_transpiles_output(make_client: ClientFactory) -> None:
+    client = make_client(
+        ScriptedLLM(
+            Classification(intent="generate", confidence=0.9),
+            [GeneratedSQL(sql="SELECT 'a' || 'b' AS x")],
+        )
+    )
+    body = client.post("/api/chat", json={"message": "concat", "dialect": "mysql"}).json()
+    assert body["dialect"] == "mysql"
+    assert body["sql"] and "CONCAT" in body["sql"].upper()

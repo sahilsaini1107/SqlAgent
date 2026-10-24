@@ -46,6 +46,13 @@ _REFUSAL_DESTRUCTIVE = (
 )
 
 
+def _safe_plan(adapter: DatabaseAdapter, sql: str) -> list[str] | None:
+    try:
+        return adapter.explain_plan(sql)
+    except Exception:  # cost estimate is best-effort; never fail the request over it
+        return None
+
+
 def _usage_record(node: str, usage: LLMUsage) -> dict[str, Any]:
     record: dict[str, Any] = {
         "node": node,
@@ -115,6 +122,8 @@ def build_agent_graph(
         if result.passed:
             update["final_sql"] = result.final_sql
             update["status"] = "validated"
+            if adapter is not None and result.final_sql:
+                update["query_plan"] = _safe_plan(adapter, result.final_sql)
         else:
             update["final_sql"] = None
             update["status"] = "validation_failed"

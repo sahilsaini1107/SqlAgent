@@ -16,6 +16,11 @@ class QueryLimits:
     timeout_ms: int = 5000
 
 
+# Dialects the agent can render SQL in (via SQLGlot). Execution runs on the SQLite sample DB;
+# other dialects are produced by transpiling the validated query for the user to copy/run.
+SUPPORTED_DIALECTS: frozenset[str] = frozenset({"sqlite", "postgres", "mysql"})
+
+
 ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
     {
         # aggregates

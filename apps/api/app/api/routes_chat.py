@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterator
 from typing import Any
 
+import sqlglot
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -34,6 +35,16 @@ def _resolve_conversation(store: SessionStore, conversation_id: str | None) -> s
     return conversation_id
 
 
+def _transpile(sql: str, dialect: str) -> str:
+    """Render the validated (SQLite) SQL in the requested dialect. Falls back to the original."""
+    if dialect == "sqlite":
+        return sql
+    try:
+        return sqlglot.transpile(sql, read="sqlite", write=dialect, pretty=True)[0]
+    except Exception:
+        return sql
+
+
 @router.post("/chat", response_model=ChatResponse)
 def chat(
     req: ChatRequest,
@@ -52,8 +63,8 @@ def chat(
         }
     )
 
-    response = _to_response(conversation_id, state, trace_id_var.get())
-    _persist_assistant(store, conversation_id, response)
+    response = _to_response(conversation_id, state, trace_id_var.get(), req.dialect)
+    _persist_assistant(store, conversation_id, response, canonical_sql=state.get("final_sql"))
     return response
 
 
@@ -67,6 +78,7 @@ def chat_stream(
     previous_sql = store.last_validated_sql(conversation_id)
     store.add_message(conversation_id, "user", content=req.message)
     trace_id = trace_id_var.get()  # captured here; the context resets before the body streams
+    dialect = req.dialect
     inputs = {
         "user_input": req.message,
         "execution_requested": req.execute,
@@ -81,8 +93,10 @@ def chat_stream(
             status = state.get("status")
             if status:
                 yield _sse("stage", {"status": status})
-        response = _to_response(conversation_id, final_state, trace_id)
-        _persist_assistant(store, conversation_id, response)
+        response = _to_response(conversation_id, final_state, trace_id, dialect)
+        _persist_assistant(
+            store, conversation_id, response, canonical_sql=final_state.get("final_sql")
+        )
         yield _sse("result", response.model_dump())
 
     return StreamingResponse(
@@ -93,13 +107,19 @@ def chat_stream(
 
 
 def _persist_assistant(
-    store: SessionStore, conversation_id: str, response: ChatResponse
+    store: SessionStore,
+    conversation_id: str,
+    response: ChatResponse,
+    *,
+    canonical_sql: str | None,
 ) -> None:
+    # Persist the canonical SQLite SQL (not the transpiled display SQL) so follow-ups are
+    # grounded in a query the agent can re-validate and execute.
     store.add_message(
         conversation_id,
         "assistant",
         content=response.explanation or response.refusal or response.clarification,
-        sql=response.sql,
+        sql=canonical_sql,
         status=response.status,
     )
 
@@ -123,15 +143,18 @@ def delete_conversation(
     store.delete_conversation(conversation_id)
 
 
-def _to_response(conversation_id: str, state: dict[str, Any], trace_id: str) -> ChatResponse:
+def _to_response(
+    conversation_id: str, state: dict[str, Any], trace_id: str, dialect: str = "sqlite"
+) -> ChatResponse:
     issues = state.get("validation_issues", [])
     result = state.get("query_result")
+    final_sql = state.get("final_sql")
     return ChatResponse(
         conversation_id=conversation_id,
         trace_id=trace_id,
         intent=state.get("intent"),
         status=state.get("status", "unknown"),
-        sql=state.get("final_sql"),
+        sql=_transpile(final_sql, dialect) if final_sql else None,
         explanation=state.get("explanation"),
         assumptions=state.get("assumptions", []),
         clarification=state.get("clarification"),
@@ -142,4 +165,6 @@ def _to_response(conversation_id: str, state: dict[str, Any], trace_id: str) -> 
             warnings=state.get("warnings", []),
         ),
         result=ResultView(**result) if result else None,
+        dialect=dialect,
+        plan=state.get("query_plan"),
     )

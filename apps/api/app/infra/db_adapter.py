@@ -27,5 +27,8 @@ class DatabaseAdapter(Protocol):
     def explain(self, sql: str) -> None:
         """Compile the query on the real engine; raise on syntax/schema errors."""
 
+    def explain_plan(self, sql: str) -> list[str]:
+        """Return the query plan steps (a cost/behaviour estimate) for a read-only query."""
+
     def execute_read_only(self, sql: str, limits: QueryLimits) -> QueryResult:
         """Execute a validated read-only query under row and time limits."""

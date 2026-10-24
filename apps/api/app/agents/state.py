@@ -33,6 +33,7 @@ class AgentState(TypedDict, total=False):
     warnings: list[dict[str, Any]]
     retry_count: int
     query_result: dict[str, Any] | None
+    query_plan: list[str] | None
 
     # Output
     explanation: str | None

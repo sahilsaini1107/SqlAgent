@@ -61,6 +61,19 @@ class SqliteReadOnlyAdapter:
         finally:
             conn.close()
 
+    def explain_plan(self, sql: str) -> list[str]:
+        """Return the SQLite query plan (the `detail` column of EXPLAIN QUERY PLAN).
+
+        A lightweight cost estimate: it reveals table scans vs. index searches, join order,
+        and use of temporary b-trees for sorting/grouping — without running the query.
+        """
+        conn = self._connect()
+        try:
+            rows = conn.execute("EXPLAIN QUERY PLAN " + sql).fetchall()
+            return [str(row[3]) for row in rows]
+        finally:
+            conn.close()
+
     def execute_read_only(self, sql: str, limits: QueryLimits) -> QueryResult:
         conn = self._connect()
         try:

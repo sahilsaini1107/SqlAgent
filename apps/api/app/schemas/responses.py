@@ -31,6 +31,9 @@ class ChatResponse(BaseModel):
     refusal: str | None = None
     validation: ValidationView
     result: ResultView | None = None
+    # SQL dialect the `sql` field is rendered in, and the query plan (cost estimate).
+    dialect: str = "sqlite"
+    plan: list[str] | None = None
 
 
 class MessageView(BaseModel):
