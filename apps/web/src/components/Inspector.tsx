@@ -97,7 +97,18 @@ export function Inspector({ turn, tab, onTab, onClose }: Props) {
             />
           )
         ) : tab === "sql" ? (
-          r.sql ? <SqlBlock sql={r.sql} /> : <Empty title="No SQL" text="This answer didn't need a query." />
+          r.sql ? (
+            <div className="space-y-3">
+              <p className="text-[11px] text-zinc-500">
+                Dialect:{" "}
+                <span className="font-mono text-zinc-700 dark:text-zinc-300">{r.dialect}</span>
+              </p>
+              <SqlBlock sql={r.sql} />
+              {r.plan && r.plan.length > 0 && <QueryPlan steps={r.plan} />}
+            </div>
+          ) : (
+            <Empty title="No SQL" text="This answer didn't need a query." />
+          )
         ) : (
           <Details turn={turn!} />
         )}
@@ -178,6 +189,23 @@ function Issues({ items, tone }: { items: ValidationIssue[]; tone: "error" | "wa
     </ul>
   );
 }
+
+function QueryPlan({ steps }: { steps: string[] }) {
+  return (
+    <section className="rounded-xl border border-black/5 bg-white/60 p-3 dark:border-white/[0.06] dark:bg-white/[0.02]">
+      <h4 className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+        <span>Query plan</span>
+        <span className="font-mono normal-case text-zinc-500">SQLite engine</span>
+      </h4>
+      <ul className="space-y-1 font-mono text-[11px] text-zinc-600 dark:text-zinc-300">
+        {steps.map((step, i) => (
+          <li key={i}>{step}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 
 function Empty({ title, text }: { title: string; text: string }) {
   return (

@@ -30,7 +30,11 @@ export interface ChatResponse {
   refusal: string | null;
   validation: ValidationView;
   result: ResultView | null;
+  dialect: string;
+  plan: string[] | null;
 }
+
+export type Dialect = "sqlite" | "postgres" | "mysql";
 
 export interface SchemaColumn {
   name: string;

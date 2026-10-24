@@ -65,13 +65,14 @@ export async function postChatStream(
   message: string,
   conversationId: string | null,
   execute: boolean,
+  dialect: string,
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
   const res = await fetch(url("/api/chat/stream"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, conversation_id: conversationId, execute }),
+    body: JSON.stringify({ message, conversation_id: conversationId, execute, dialect }),
     signal,
   });
   if (!res.ok || !res.body) throw await errorFrom(res);

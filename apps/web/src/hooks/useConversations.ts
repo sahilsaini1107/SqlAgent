@@ -2,13 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, deleteServerConversation, postChatStream } from "../lib/api";
 import { loadConversations, saveConversations, uid } from "../lib/storage";
-import type { AssistantTurn, Conversation, ErrorTurn, Turn, UserTurn } from "../types";
+import type { AssistantTurn, Conversation, Dialect, ErrorTurn, Turn, UserTurn } from "../types";
 
 export interface SendOptions {
   /** Drop this user turn and everything after it before sending (edit / regenerate). */
   replaceFrom?: string;
   /** Start a new conversation regardless of which one is active. */
   fresh?: boolean;
+  /** SQL dialect to render the answer in (default sqlite). */
+  dialect?: Dialect;
 }
 
 export interface Pending {
@@ -95,11 +97,13 @@ export function useConversations() {
       const stages: string[] = [];
       setPending({ conversationId: convId, stages: [], startedAt: Date.now() });
 
+      const dialect = options.dialect ?? "sqlite";
       const run = async (serverId: string | null) =>
         postChatStream(
           text,
           serverId,
           execute,
+          dialect,
           {
             onStart: (id) => patch(convId, (c) => ({ ...c, serverId: id })),
             onStage: (status) => {

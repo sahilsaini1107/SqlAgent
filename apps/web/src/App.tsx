@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { Dialect } from "./types";
+
 import { ChatThread } from "./components/ChatThread";
 import { type Command, CommandPalette } from "./components/CommandPalette";
 import { Composer } from "./components/Composer";
@@ -54,6 +56,7 @@ export default function App() {
 
   const [draft, setDraft] = useState("");
   const [execute, setExecute] = usePersistentFlag("sql-agent.execute", () => true);
+  const [dialect, setDialect] = useState<Dialect>("sqlite");
   const [editingTurnId, setEditingTurnId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => isWide(1024));
   const [inspectorOpen, setInspectorOpen] = useState(() => isWide(1280));
@@ -104,7 +107,7 @@ export default function App() {
 
   const submit = (text: string, exec: boolean) => {
     if (!text.trim() || busy) return;
-    void chat.send(text, exec, editingTurnId ? { replaceFrom: editingTurnId } : {});
+    void chat.send(text, exec, editingTurnId ? { replaceFrom: editingTurnId, dialect } : { dialect });
     setEditingTurnId(null);
     setDraft("");
   };
@@ -176,7 +179,7 @@ export default function App() {
       group: "Try asking",
       label: e.prompt,
       icon: IconSparkles,
-      run: () => void chat.send(e.prompt, execute, { fresh: true }),
+      run: () => void chat.send(e.prompt, execute, { fresh: true, dialect }),
     }));
     const chats: Command[] = chat.conversations
       .filter((c) => c.turns.length > 0)
@@ -270,7 +273,7 @@ export default function App() {
               setInspectorOpen(true);
             }}
             onFollowUp={(prompt, exec) => submit(prompt, exec ?? execute)}
-            onResend={(turn) => void chat.send(turn.text, turn.execute, { replaceFrom: turn.id })}
+            onResend={(turn) => void chat.send(turn.text, turn.execute, { replaceFrom: turn.id, dialect })}
             onEdit={startEdit}
           />
         ) : (
@@ -283,6 +286,8 @@ export default function App() {
           onChange={setDraft}
           execute={execute}
           onExecuteChange={setExecute}
+          dialect={dialect}
+          onDialectChange={setDialect}
           busy={busy}
           editing={editingTurnId !== null}
           onSend={() => submit(draft, execute)}

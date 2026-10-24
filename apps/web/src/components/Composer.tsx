@@ -1,6 +1,7 @@
 import { forwardRef, useLayoutEffect, useRef } from "react";
 
 import { modKey } from "../hooks/useHotkeys";
+import type { Dialect } from "../types";
 import { IconBolt, IconClose, IconPencil, IconSend, IconStop } from "./Icons";
 
 const MAX_CHARS = 4000;
@@ -10,6 +11,8 @@ interface Props {
   onChange: (value: string) => void;
   execute: boolean;
   onExecuteChange: (execute: boolean) => void;
+  dialect: Dialect;
+  onDialectChange: (dialect: Dialect) => void;
   busy: boolean;
   editing: boolean;
   onSend: () => void;
@@ -20,7 +23,8 @@ interface Props {
 }
 
 export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer(props, ref) {
-  const { value, onChange, execute, onExecuteChange, busy, editing } = props;
+  const { value, onChange, execute, onExecuteChange, dialect, onDialectChange, busy, editing } =
+    props;
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Auto-grow up to ~8 lines.
@@ -102,6 +106,17 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
             </button>
 
             <div className="flex items-center gap-3">
+              <select
+                value={dialect}
+                onChange={(e) => onDialectChange(e.target.value as Dialect)}
+                disabled={busy}
+                title="SQL dialect to render the query in"
+                className="rounded-full border border-black/10 bg-transparent px-2 py-1 text-xs font-medium text-zinc-600 outline-none dark:border-white/10 dark:text-zinc-300"
+              >
+                <option value="sqlite">SQLite</option>
+                <option value="postgres">PostgreSQL</option>
+                <option value="mysql">MySQL</option>
+              </select>
               <span className="hidden text-[11px] text-zinc-400 sm:inline">
                 {value.length > MAX_CHARS * 0.8 ? (
                   <span className={value.length > MAX_CHARS ? "text-red-500" : ""}>
