@@ -27,3 +27,6 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# Local audit databases, browser downloads, screenshots and PDF renders
+/tmp/
