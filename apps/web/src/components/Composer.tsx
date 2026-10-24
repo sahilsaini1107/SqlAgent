@@ -83,6 +83,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
             className="block max-h-[220px] w-full resize-none bg-transparent px-4 pb-2 pt-3.5 text-[15px] leading-relaxed outline-none placeholder:text-zinc-400"
           />
           <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
+            <div className="flex items-center gap-2">
             <button
               role="switch"
               aria-checked={execute}
@@ -104,19 +105,21 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
               <IconBolt size={12} />
               {execute ? "Run on database" : "SQL only"}
             </button>
-
-            <div className="flex items-center gap-3">
               <select
                 value={dialect}
                 onChange={(e) => onDialectChange(e.target.value as Dialect)}
                 disabled={busy}
                 title="SQL dialect to render the query in"
-                className="rounded-full border border-black/10 bg-transparent px-2 py-1 text-xs font-medium text-zinc-600 outline-none dark:border-white/10 dark:text-zinc-300"
+                aria-label="SQL dialect"
+                className="cursor-pointer rounded-full border border-black/10 bg-transparent px-2.5 py-1 text-xs font-medium text-zinc-600 outline-none transition hover:bg-black/[0.03] disabled:opacity-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/[0.04] [&>option]:bg-white [&>option]:text-zinc-800 dark:[&>option]:bg-zinc-800 dark:[&>option]:text-zinc-100"
               >
                 <option value="sqlite">SQLite</option>
                 <option value="postgres">PostgreSQL</option>
                 <option value="mysql">MySQL</option>
               </select>
+            </div>
+
+            <div className="flex items-center gap-3">
               <span className="hidden text-[11px] text-zinc-400 sm:inline">
                 {value.length > MAX_CHARS * 0.8 ? (
                   <span className={value.length > MAX_CHARS ? "text-red-500" : ""}>
