@@ -33,12 +33,16 @@ and **React + TypeScript** (frontend).
 
 **Bonus (implemented)**
 - Query execution against the sample database, with row cap + timeout.
+- **Query cost estimation** via `EXPLAIN QUERY PLAN` (table scans vs. index use, join order).
+- **Multiple SQL dialects** — generate and validate on SQLite, then render the query in
+  SQLite, PostgreSQL, or MySQL via SQLGlot transpilation (dialect selector in the UI).
 - SQL **syntax highlighting**, **streaming** responses, **dark mode**.
 - **CSV / SQL download**, result latency surfaced.
 - Prompt-injection handling (user text treated as data; enforced by the code gate + DB layer).
 - **Dockerized** deployment; unit, integration, and adversarial tests.
 
-**Roadmap:** multiple SQL dialects (PostgreSQL) behind the existing `DatabaseAdapter` boundary.
+**Roadmap:** live execution against PostgreSQL/MySQL engines behind the existing
+`DatabaseAdapter` boundary (dialect *output* is already supported).
 
 ## How it works
 
@@ -135,8 +139,12 @@ curl -X POST http://127.0.0.1:8000/api/chat \
   -d '{"message": "Top 5 products by total revenue", "execute": true}'
 ```
 
-The response includes `sql`, `explanation`, `validation` (passed/issues/warnings), optional
-`result` (columns/rows/row_count/truncated), `status`, and a `trace_id`.
+Request body: `{ message, conversation_id?, execute?, dialect? }`, where `dialect` is
+`sqlite` (default), `postgres`, or `mysql`.
+
+The response includes `sql` (rendered in the chosen dialect), `explanation`, `validation`
+(passed/issues/warnings), optional `result` (columns/rows/row_count/truncated), `plan`
+(the `EXPLAIN QUERY PLAN` cost estimate), `dialect`, `status`, and a `trace_id`.
 
 ## Testing & quality
 
@@ -182,7 +190,9 @@ api/           Vercel serverless entrypoint
   otherwise be provided; it is never claimed to be an official one.
 - "Read-only" means a single `SELECT` / `WITH` / `UNION` of selects; index suggestions are
   advisory text only (never executed).
-- SQLite is the MVP dialect; PostgreSQL is a planned extension behind the adapter boundary.
+- Queries are validated and executed on SQLite; the generated SQL can also be rendered in
+  PostgreSQL or MySQL via SQLGlot transpilation. Live execution against those engines is a
+  planned extension behind the `DatabaseAdapter` boundary.
 - On serverless hosting, conversation history lives in `/tmp` and is per-instance/ephemeral.
 - Safety is **tested**, not formally proven; see the adversarial suite and `docs/architecture.md`.
 

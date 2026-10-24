@@ -83,6 +83,19 @@ Runs after every generation/repair/optimization, cheapest and most decisive chec
 
 Structured issue codes (`UNKNOWN_TABLE`, `FORBIDDEN_OPERATION`, …) feed the `repair` node.
 
+## Cost estimation & SQL dialects
+
+- **Cost estimation.** When a query passes validation, the adapter runs `EXPLAIN QUERY PLAN`
+  against the SQLite engine and the plan steps (table scans vs. index searches, join order,
+  temporary b-trees) are returned as `plan` on the response — a cheap cost/behaviour estimate
+  computed without running the query.
+- **Multiple dialects.** Generation, validation, and execution always happen on SQLite (the
+  only dataset). The request carries a `dialect` (`sqlite` | `postgres` | `mysql`); the
+  validated query is **transpiled with SQLGlot** to that dialect for the `sql` field the user
+  copies. Follow-ups are grounded in the canonical SQLite query, not the transpiled display
+  form, so conversation context stays correct regardless of the chosen dialect. Live execution
+  against Postgres/MySQL engines is a future extension behind the `DatabaseAdapter` boundary.
+
 ## Defense in depth (security)
 
 - **Prompt injection:** user text is treated as data, never instructions. Result rows and raw
