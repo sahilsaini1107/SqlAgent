@@ -14,7 +14,7 @@ and **React + TypeScript** (frontend).
 
 ## Live demo
 
-- **App:** _<deployed link — add after deploying; see `docs/DEPLOY.md`>_
+- **App:** _<[deployed link — add after deploying; see `docs/DEPLOY.md](https://sql-agent-api-pza5.onrender.com/)`>_
 - **Demo video:** _<3–5 min walkthrough — add link>_
 
 ## Features
