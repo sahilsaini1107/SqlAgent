@@ -1,1 +1,137 @@
 @import "tailwindcss";
+@import "prismjs/themes/prism-tomorrow.css";
+
+/* Enable class-based dark mode (toggled on <html class="dark">). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  /* One restrained accent (indigo); everything else is neutral zinc. */
+  --color-accent-50: var(--color-indigo-50);
+  --color-accent-100: var(--color-indigo-100);
+  --color-accent-200: var(--color-indigo-200);
+  --color-accent-300: var(--color-indigo-300);
+  --color-accent-400: var(--color-indigo-400);
+  --color-accent-500: var(--color-indigo-500);
+  --color-accent-600: var(--color-indigo-600);
+  --color-accent-700: var(--color-indigo-700);
+
+  --animate-fade-up: fade-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in: fade-in 0.25s ease-out both;
+  --animate-pop: pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-slide-in-right: slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-slide-in-left: slide-in-left 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-shimmer: shimmer 1.8s linear infinite;
+  --animate-spin-slow: spin 6s linear infinite;
+  --animate-blink: blink 1s step-end infinite;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-24px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  background: #f7f7f8;
+  color: #18181b;
+}
+
+.dark body {
+  background: #0e0f12;
+  color: #e4e4e7;
+}
+
+::selection {
+  background: rgb(79 70 229 / 0.22);
+}
+
+/* The single brand accent, as a solid fill. */
+.bg-brand {
+  background-color: var(--color-accent-600);
+}
+
+/* Accent hairline on the focused composer and the live pipeline card. */
+.ring-glow {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.ring-glow.is-active,
+.ring-glow:focus-within {
+  border-color: rgb(79 70 229 / 0.45);
+  box-shadow: 0 0 0 3px rgb(79 70 229 / 0.1);
+}
+
+.shimmer-text {
+  background: linear-gradient(90deg, currentColor 0%, currentColor 40%, rgb(161 161 170 / 0.6) 50%, currentColor 60%, currentColor 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+
+/* Slim, theme-aware scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(120 120 150 / 0.35) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: rgb(120 120 150 / 0.3); border-radius: 9999px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* Prism: sit on our own code surface instead of the theme's background. */
+pre[class*="language-"],
+code[class*="language-"] {
+  background: transparent !important;
+  font-family: var(--font-mono) !important;
+  font-size: 0.8125rem !important;
+  line-height: 1.65 !important;
+  text-shadow: none !important;
+}
+.token.keyword { color: #9db1ff; font-weight: 600; }
+.token.function { color: #e5c07b; }
+.token.string { color: #a3c98a; }
+.token.number { color: #d19a66; }
+.token.operator, .token.punctuation { color: #a1a1aa; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
