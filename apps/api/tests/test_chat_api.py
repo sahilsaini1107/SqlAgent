@@ -12,6 +12,8 @@ from app.agents.contracts import Classification, Explanation, GeneratedSQL
 from app.agents.llm import LLMUsage, StructuredResult
 from app.db.seed_data import WAREHOUSES
 
+from .test_schema_catalog import CORE_TABLES
+
 
 class ScriptedLLM:
     def __init__(
@@ -102,7 +104,7 @@ def test_schema_endpoint(make_client: ClientFactory) -> None:
     assert body["dialect"] == "sqlite"
     names = {t["name"] for t in body["tables"]}
     assert {"customers", "products", "orders", "order_items", "categories", "addresses"} <= names
-    assert len(names) == 28
+    assert names == CORE_TABLES
 
 
 def _parse_sse_result(text: str) -> dict[str, object]:

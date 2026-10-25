@@ -45,6 +45,8 @@ class ChatResponse(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     clarification: str | None = None
     refusal: str | None = None
+    # Set when the turn could not be completed because the language model was unreachable.
+    error: str | None = None
     validation: ValidationView
     result: ResultView | None = None
     # SQL dialect the `sql` field is rendered in, and the query plan (cost estimate).

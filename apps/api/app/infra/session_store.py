@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +35,7 @@ class SessionStore:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.executescript(_SCHEMA)
 
     def _connect(self) -> sqlite3.Connection:
@@ -45,12 +46,12 @@ class SessionStore:
 
     def create_conversation(self) -> str:
         conversation_id = uuid.uuid4().hex
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.execute("INSERT INTO conversations (id) VALUES (?)", (conversation_id,))
         return conversation_id
 
     def conversation_exists(self, conversation_id: str) -> bool:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)
             ).fetchone()
@@ -65,15 +66,37 @@ class SessionStore:
         sql: str | None = None,
         status: str | None = None,
     ) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.execute(
                 "INSERT INTO messages (conversation_id, role, content, sql, status) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (conversation_id, role, content, sql, status),
             )
 
+    def add_turn(
+        self,
+        conversation_id: str,
+        *,
+        user_content: str,
+        assistant_content: str | None,
+        assistant_sql: str | None,
+        assistant_status: str | None,
+    ) -> None:
+        """Persist the user message and the assistant reply in a single transaction, so a
+        failure mid-turn can never leave an orphaned user message without its response."""
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'user', ?)",
+                (conversation_id, user_content),
+            )
+            conn.execute(
+                "INSERT INTO messages (conversation_id, role, content, sql, status) "
+                "VALUES (?, 'assistant', ?, ?, ?)",
+                (conversation_id, assistant_content, assistant_sql, assistant_status),
+            )
+
     def last_validated_sql(self, conversation_id: str) -> str | None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT sql FROM messages "
                 "WHERE conversation_id = ? AND sql IS NOT NULL "
@@ -84,7 +107,7 @@ class SessionStore:
         return row["sql"] if row else None
 
     def get_history(self, conversation_id: str) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT role, content, sql, status, created_at FROM messages "
                 "WHERE conversation_id = ? ORDER BY id",
@@ -93,6 +116,6 @@ class SessionStore:
         return [dict(row) for row in rows]
 
     def delete_conversation(self, conversation_id: str) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
             conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))

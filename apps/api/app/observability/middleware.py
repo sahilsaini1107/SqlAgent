@@ -7,6 +7,7 @@ echoes the id back on the response so clients can quote it in support requests.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -20,13 +21,23 @@ from app.observability.logging import get_logger, trace_id_var
 logger = get_logger("app.request")
 
 _HEADER = "X-Request-ID"
+# Accept a client-supplied id only if it's a bounded, safe token — otherwise generate one.
+# This prevents log injection (newlines in the header) and unbounded ids in structured logs.
+_SAFE_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def _trace_id_from(request: Request) -> str:
+    inbound = request.headers.get(_HEADER)
+    if inbound and _SAFE_ID.match(inbound):
+        return inbound
+    return uuid.uuid4().hex
 
 
 class RequestTraceMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        trace_id = request.headers.get(_HEADER) or uuid.uuid4().hex
+        trace_id = _trace_id_from(request)
         token = trace_id_var.set(trace_id)
         start = time.perf_counter()
         try:

@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from app.agents.context import format_history, is_rewritten
 from app.dependencies import get_graph, get_session_store
 from app.infra.session_store import SessionStore
-from app.observability.logging import trace_id_var
+from app.observability.logging import get_logger, trace_id_var
 from app.schemas.requests import ChatRequest
 from app.schemas.responses import (
     ChatResponse,
@@ -24,6 +24,9 @@ from app.schemas.responses import (
 )
 
 router = APIRouter(prefix="/api", tags=["chat"])
+logger = get_logger("app.chat")
+
+_STREAM_ERROR = "The assistant hit an unexpected error while answering. Please try again."
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -38,14 +41,29 @@ def _resolve_conversation(store: SessionStore, conversation_id: str | None) -> s
     return conversation_id
 
 
+def _int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _usage_view(usages: list[dict[str, Any]]) -> UsageView:
+    # Telemetry is best-effort; a malformed record must never crash the user-facing response.
     calls = [
         UsageCall(
             node=str(u.get("node", "")),
             model=str(u.get("model", "")),
-            input_tokens=int(u.get("input_tokens", 0)),
-            output_tokens=int(u.get("output_tokens", 0)),
-            latency_ms=float(u.get("latency_ms", 0.0)),
+            input_tokens=_int(u.get("input_tokens", 0)),
+            output_tokens=_int(u.get("output_tokens", 0)),
+            latency_ms=_float(u.get("latency_ms", 0.0)),
         )
         for u in usages
     ]
@@ -60,14 +78,22 @@ def _usage_view(usages: list[dict[str, Any]]) -> UsageView:
     )
 
 
-def _transpile(sql: str, dialect: str) -> str:
-    """Render the validated (SQLite) SQL in the requested dialect. Falls back to the original."""
+def _transpile(sql: str, dialect: str) -> tuple[str, bool]:
+    """Render the validated (SQLite) SQL in the requested dialect.
+
+    Returns ``(sql, ok)``. On a transpile failure it falls back to the original SQLite text and
+    returns ``ok=False`` so the caller can tell the client the dialect wasn't applied rather
+    than silently mislabelling SQLite SQL as e.g. Postgres.
+    """
     if dialect == "sqlite":
-        return sql
+        return sql, True
     try:
-        return sqlglot.transpile(sql, read="sqlite", write=dialect, pretty=True)[0]
-    except Exception:
-        return sql
+        return sqlglot.transpile(sql, read="sqlite", write=dialect, pretty=True)[0], True
+    except Exception as err:
+        logger.warning(
+            "dialect transpile failed", extra={"dialect": dialect, "error": str(err)}
+        )
+        return sql, False
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -79,7 +105,6 @@ def chat(
     conversation_id = _resolve_conversation(store, req.conversation_id)
     previous_sql = store.last_validated_sql(conversation_id)
     history = format_history(store.get_history(conversation_id))
-    store.add_message(conversation_id, "user", content=req.message)
 
     state: dict[str, Any] = graph.invoke(
         {
@@ -93,7 +118,9 @@ def chat(
     response = _to_response(
         conversation_id, state, trace_id_var.get(), req.dialect, user_input=req.message
     )
-    _persist_assistant(store, conversation_id, response, canonical_sql=state.get("final_sql"))
+    _persist_turn(
+        store, conversation_id, req.message, response, canonical_sql=state.get("final_sql")
+    )
     return response
 
 
@@ -106,7 +133,6 @@ def chat_stream(
     conversation_id = _resolve_conversation(store, req.conversation_id)
     previous_sql = store.last_validated_sql(conversation_id)
     history = format_history(store.get_history(conversation_id))
-    store.add_message(conversation_id, "user", content=req.message)
     trace_id = trace_id_var.get()  # captured here; the context resets before the body streams
     dialect = req.dialect
     inputs = {
@@ -119,16 +145,28 @@ def chat_stream(
     def event_stream() -> Iterator[str]:
         yield _sse("start", {"conversation_id": conversation_id, "trace_id": trace_id})
         final_state: dict[str, Any] = {}
-        for state in graph.stream(inputs, stream_mode="values"):
-            final_state = state
-            status = state.get("status")
-            if status:
-                yield _sse("stage", {"status": status})
+        try:
+            for state in graph.stream(inputs, stream_mode="values"):
+                final_state = state
+                status = state.get("status")
+                if status:
+                    yield _sse("stage", {"status": status})
+        except GeneratorExit:  # client disconnected — stop quietly, persist nothing partial
+            logger.info("chat stream disconnected", extra={"conversation_id": conversation_id})
+            raise
+        except Exception:
+            logger.exception("chat stream failed", extra={"conversation_id": conversation_id})
+            yield _sse("error", {"trace_id": trace_id, "message": _STREAM_ERROR})
+            return
         response = _to_response(
             conversation_id, final_state, trace_id, dialect, user_input=req.message
         )
-        _persist_assistant(
-            store, conversation_id, response, canonical_sql=final_state.get("final_sql")
+        _persist_turn(
+            store,
+            conversation_id,
+            req.message,
+            response,
+            canonical_sql=final_state.get("final_sql"),
         )
         yield _sse("result", response.model_dump())
 
@@ -139,21 +177,28 @@ def chat_stream(
     )
 
 
-def _persist_assistant(
+def _persist_turn(
     store: SessionStore,
     conversation_id: str,
+    user_message: str,
     response: ChatResponse,
     *,
     canonical_sql: str | None,
 ) -> None:
-    # Persist the canonical SQLite SQL (not the transpiled display SQL) so follow-ups are
-    # grounded in a query the agent can re-validate and execute.
-    store.add_message(
+    # Persist the user message and the assistant reply together, at the end of the turn, so a
+    # failure never leaves an orphaned user message. The canonical SQLite SQL (not the
+    # transpiled display SQL) is stored so follow-ups re-validate and execute cleanly.
+    store.add_turn(
         conversation_id,
-        "assistant",
-        content=response.explanation or response.refusal or response.clarification,
-        sql=canonical_sql,
-        status=response.status,
+        user_content=user_message,
+        assistant_content=(
+            response.explanation
+            or response.refusal
+            or response.clarification
+            or response.error
+        ),
+        assistant_sql=canonical_sql,
+        assistant_status=response.status,
     )
 
 
@@ -188,23 +233,31 @@ def _to_response(
     resolved = state.get("resolved_request") or ""
     result = state.get("query_result")
     final_sql = state.get("final_sql")
+    rendered_sql: str | None = None
+    rendered_dialect = dialect
+    if final_sql:
+        rendered_sql, ok = _transpile(final_sql, dialect)
+        # If the requested dialect couldn't be produced, report the SQL as the SQLite it
+        # actually is rather than mislabelling it.
+        rendered_dialect = dialect if ok else "sqlite"
     return ChatResponse(
         conversation_id=conversation_id,
         trace_id=trace_id,
         intent=state.get("intent"),
         status=state.get("status", "unknown"),
-        sql=_transpile(final_sql, dialect) if final_sql else None,
+        sql=rendered_sql,
         explanation=state.get("explanation"),
         assumptions=state.get("assumptions", []),
         clarification=state.get("clarification"),
         refusal=state.get("refusal"),
+        error=state.get("error"),
         validation=ValidationView(
             passed=not issues,
             issues=issues,
             warnings=state.get("warnings", []),
         ),
         result=ResultView(**result) if result else None,
-        dialect=dialect,
+        dialect=rendered_dialect,
         plan=state.get("query_plan"),
         usage=_usage_view(state.get("usages", [])),
         interpreted_as=resolved if user_input and is_rewritten(user_input, resolved) else None,
