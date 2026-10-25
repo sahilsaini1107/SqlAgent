@@ -3,14 +3,17 @@ name = "sql-agent-api"
 version = "0.1.0"
 description = "Schema-grounded, read-only natural-language to SQL agent (API)"
 requires-python = ">=3.12,<3.13"
+# Bounds are compatible-release: floor = the tested version (also pinned exactly in uv.lock),
+# ceiling = the next major, so a relock can't silently pull a breaking major of the
+# fast-moving LLM/parser stack.
 dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.32",
-    "pydantic-settings>=2.6",
-    "langgraph>=0.2",
-    "langchain-core>=0.3",
-    "langchain-google-genai>=2.0",
-    "sqlglot>=30.24.0",
+    "fastapi>=0.162,<1.0",
+    "uvicorn[standard]>=0.54,<1.0",
+    "pydantic-settings>=2.16,<3.0",
+    "langgraph>=1.2,<2.0",
+    "langchain-core>=1.7,<2.0",
+    "langchain-google-genai>=4.4,<5.0",
+    "sqlglot>=30.24,<31.0",
 ]
 
 [dependency-groups]

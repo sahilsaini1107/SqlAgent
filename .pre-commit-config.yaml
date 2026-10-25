@@ -1,0 +1,21 @@
+# Run the same gates as CI before a commit lands, so lint/type/format failures are caught
+# locally instead of burning a CI cycle. Install with: pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^apps/api/
+      - id: ruff-format
+        files: ^apps/api/
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (api)
+        entry: bash -c 'cd apps/api && uv run mypy app'
+        language: system
+        files: ^apps/api/
+        pass_filenames: false
+        types: [python]
