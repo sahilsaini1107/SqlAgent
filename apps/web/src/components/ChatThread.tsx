@@ -52,12 +52,20 @@ export function assistantText(response: ChatResponse): string {
 export function ChatThread(props: Props) {
   const { conversation, pending } = props;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
+  // Tracked in a ref so the ResizeObserver callback always sees the live value.
+  const atBottomRef = useRef(true);
   const isPending = pending?.conversationId === conversation.id;
+
+  const setPinned = (pinned: boolean) => {
+    atBottomRef.current = pinned;
+    setAtBottom(pinned);
+  };
 
   const onScroll = () => {
     const el = scrollRef.current;
-    if (el) setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
+    if (el) setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
   };
 
   const scrollToBottom = (smooth = true) =>
@@ -66,12 +74,20 @@ export function ChatThread(props: Props) {
   // Jump to the end when switching conversations; follow new content only if already at the bottom.
   useLayoutEffect(() => {
     scrollToBottom(false);
-    setAtBottom(true);
+    setPinned(true);
   }, [conversation.id]);
 
+  // Follow content growth (typewriter reveal, table/chart expansion) instead of discrete turn
+  // counts, so the view stays pinned to the bottom — but only while the user hasn't scrolled away.
   useEffect(() => {
-    if (atBottom) scrollToBottom();
-  }, [conversation.turns.length, pending?.stages.length]);
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (atBottomRef.current) scrollToBottom(false);
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   const turns = conversation.turns;
   const lastAssistantIndex = turns.map((t) => t.role).lastIndexOf("assistant");
@@ -79,7 +95,7 @@ export function ChatThread(props: Props) {
   return (
     <div className="relative flex-1 overflow-hidden">
       <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto">
-        <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 pb-10 pt-6 sm:px-6">
+        <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-6 px-4 pb-10 pt-6 sm:px-6">
           {turns.map((turn, index) => {
             if (turn.role === "user") {
               return <UserBubble key={turn.id} turn={turn} onEdit={() => props.onEdit(turn)} />;

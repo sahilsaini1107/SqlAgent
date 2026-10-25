@@ -67,10 +67,24 @@ export default function App() {
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    const check = () => fetchHealth().then(() => setOnline(true), () => setOnline(false));
+    let controller: AbortController | null = null;
+    const check = () => {
+      controller?.abort();
+      controller = new AbortController();
+      fetchHealth(controller.signal).then(
+        () => setOnline(true),
+        (err: unknown) => {
+          // A request aborted by the next tick (or cleanup) isn't a real outage.
+          if (!(err instanceof DOMException && err.name === "AbortError")) setOnline(false);
+        },
+      );
+    };
     check();
     const timer = setInterval(check, 30_000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      controller?.abort();
+    };
   }, []);
 
   const active = chat.active;
@@ -82,11 +96,16 @@ export default function App() {
     return answers.find((t) => t.id === inspectedTurnId) ?? answers[answers.length - 1] ?? null;
   }, [active, inspectedTurnId]);
 
+  // Keep the latest conversation readable from the fresh-turn effect without re-running it
+  // on every turn update (which would fight the typewriter reveal).
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
   // A fresh answer takes over the inspector, on the most useful tab.
   useEffect(() => {
     if (!chat.freshTurnId) return;
     setInspectedTurnId(null);
-    const turn = active?.turns.find((t) => t.id === chat.freshTurnId);
+    const turn = activeRef.current?.turns.find((t) => t.id === chat.freshTurnId);
     if (turn?.role === "assistant") {
       setInspectorTab(turn.response.result ? "results" : turn.response.sql ? "sql" : "details");
     }
@@ -190,7 +209,7 @@ export default function App() {
         run: () => chat.select(c.id),
       }));
     return [...actions, ...examples, ...chats];
-  }, [active, chat, dark, execute, exportChat, newChat, setExecute, toggleTheme]);
+  }, [active, chat, dark, dialect, execute, exportChat, newChat, setExecute, toggleTheme]);
 
   return (
     <div className="relative flex h-full overflow-hidden">

@@ -33,12 +33,12 @@ async function parseJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function fetchSchema(): Promise<SchemaView> {
-  return parseJson<SchemaView>(await fetch(url("/api/schema")));
+export async function fetchSchema(signal?: AbortSignal): Promise<SchemaView> {
+  return parseJson<SchemaView>(await fetch(url("/api/schema"), { signal }));
 }
 
-export async function fetchHealth(): Promise<{ status: string; version: string }> {
-  return parseJson(await fetch(url("/health")));
+export async function fetchHealth(signal?: AbortSignal): Promise<{ status: string; version: string }> {
+  return parseJson(await fetch(url("/health"), { signal }));
 }
 
 export interface StreamHandlers {
@@ -47,17 +47,26 @@ export interface StreamHandlers {
   onResult: (response: ChatResponse) => void;
 }
 
-function handleSseBlock(block: string, handlers: StreamHandlers): void {
+export function handleSseBlock(block: string, handlers: StreamHandlers): void {
   let event = "";
   let data = "";
   for (const line of block.split("\n")) {
+    // SSE comment / keepalive lines start with ':' and carry no event data.
+    if (line.startsWith(":")) continue;
     if (line.startsWith("event:")) event = line.slice(6).trim();
     else if (line.startsWith("data:")) data += line.slice(5).trim();
   }
   if (!data) return;
-  const payload = JSON.parse(data);
-  if (event === "start") handlers.onStart?.(payload.conversation_id as string);
-  else if (event === "stage") handlers.onStage?.(payload.status as string);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(data);
+  } catch {
+    // A malformed or partial frame must not abort the whole stream — skip it.
+    return;
+  }
+  const record = payload as Record<string, unknown>;
+  if (event === "start") handlers.onStart?.(record.conversation_id as string);
+  else if (event === "stage") handlers.onStage?.(record.status as string);
   else if (event === "result") handlers.onResult(payload as ChatResponse);
 }
 
