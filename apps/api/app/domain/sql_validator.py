@@ -2,7 +2,9 @@
 
 Runs after every generation/repair/optimization. No LLM is involved. The order is cheapest
 and most decisive first: parse -> single statement -> read-only -> functions -> schema binding
--> joins -> (optional) real-engine EXPLAIN. Errors block the query; warnings are advisory.
+-> joins -> re-validate the serialized SQL -> real-engine EXPLAIN. Errors block the query;
+warnings are advisory. The EXPLAIN backstop is mandatory, so unknown columns/syntax a static
+check can't resolve are still caught by the engine before any SQL is returned.
 
 This is one half of "the LLM proposes, code decides" — the other half is the read-only
 database layer, which independently enforces safety even if a
@@ -12,6 +14,7 @@ bug here let something through.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -23,15 +26,31 @@ from app.domain.query_policy import ALLOWED_FUNCTIONS
 from app.domain.schema_catalog import SchemaCatalog
 from app.domain.validation import ValidationIssue, ValidationResult
 
+# Any of these node types appearing ANYWHERE in the tree means the statement is not a pure
+# read. DML/DDL are sqlglot's abstract bases for data/schema-modifying statements and Command
+# catches engine statements it doesn't model structurally (PRAGMA, VACUUM, REINDEX, ...), so
+# the three bases alone cover the space; the explicit names are belt-and-suspenders. We resolve
+# every name up front and raise at import if sqlglot ever drops one — a silent ``hasattr`` skip
+# would quietly remove a guard on a dependency bump.
 _FORBIDDEN_NAMES = [
-    "Insert", "Update", "Delete", "Merge", "Drop", "Create", "Alter",
-    "TruncateTable", "Command", "Pragma", "Attach", "Detach",
-    "Transaction", "Commit", "Rollback", "Set", "Use",
+    "DML", "DDL", "Command", "Insert", "Update", "Delete", "Merge", "Drop", "Create", "Alter",
+    "TruncateTable", "Pragma", "Attach", "Detach", "Transaction", "Commit", "Rollback",
+    "Set", "Use", "Copy", "Grant", "Analyze",
 ]
-_FORBIDDEN_TYPES = tuple(getattr(exp, name) for name in _FORBIDDEN_NAMES if hasattr(exp, name))
+_missing = [name for name in _FORBIDDEN_NAMES if not hasattr(exp, name)]
+if _missing:  # pragma: no cover - guards against a sqlglot upgrade silently weakening the gate
+    raise RuntimeError(f"sqlglot is missing expected forbidden expression types: {_missing}")
+_FORBIDDEN_TYPES = tuple(getattr(exp, name) for name in _FORBIDDEN_NAMES)
 
 _ALLOWED_ROOT_NAMES = ["Select", "Union", "Intersect", "Except", "Subquery"]
 _ALLOWED_ROOTS = tuple(getattr(exp, name) for name in _ALLOWED_ROOT_NAMES if hasattr(exp, name))
+
+# Functions that are never legitimate in a read-only query and must be blocked regardless of
+# how sqlglot parses them (dedicated node or Anonymous). The positive allowlist governs unknown
+# functions; this denylist is a hard floor for known-dangerous ones.
+_FORBIDDEN_FUNCTION_NAMES = frozenset(
+    {"load_extension", "readfile", "writefile", "edit", "fts3_tokenizer", "zipfile", "lsmode"}
+)
 
 
 @dataclass
@@ -48,7 +67,7 @@ class SqlValidator:
         *,
         dialect: str = "sqlite",
         allowed_functions: frozenset[str] = ALLOWED_FUNCTIONS,
-        execute_check: Callable[[str], None] | None = None,
+        execute_check: Callable[[str], None],
     ) -> None:
         self._catalog = catalog
         self._dialect = dialect
@@ -85,14 +104,27 @@ class SqlValidator:
         result = ValidationResult(issues)
         if result.passed:
             final_sql = expr.sql(dialect=self._dialect, pretty=True)
-            if self._execute_check is not None:
-                try:
-                    self._execute_check(final_sql)
-                except Exception as err:  # engine is the final arbiter of syntax/columns
-                    issues.append(ValidationIssue("EXECUTION_ERROR", _clean(str(err))))
-                    return ValidationResult(issues)
+            # Validate the exact string that will execute: re-parse the serialized SQL and
+            # re-run the read-only gate, so no normalization quirk in sqlglot's roundtrip can
+            # re-introduce a write/admin construct past the checks above.
+            if recheck := self._recheck_serialized(final_sql):
+                return ValidationResult(issues + recheck)
+            try:
+                self._execute_check(final_sql)
+            except Exception as err:  # engine is the final arbiter of syntax/columns
+                issues.append(ValidationIssue("EXECUTION_ERROR", _clean(str(err))))
+                return ValidationResult(issues)
             return ValidationResult(issues, final_sql=final_sql)
         return result
+
+    def _recheck_serialized(self, final_sql: str) -> list[ValidationIssue]:
+        try:
+            reparsed = sqlglot.parse_one(final_sql, read=self._dialect)
+        except SqlglotError:
+            return [ValidationIssue("PARSE_ERROR", "Serialized query could not be re-parsed.")]
+        if reparsed is None:
+            return [ValidationIssue("PARSE_ERROR", "Serialized query is empty.")]
+        return self._check_read_only(cast(exp.Expression, reparsed))
 
     # -- checks -----------------------------------------------------------------
 
@@ -120,12 +152,27 @@ class SqlValidator:
 
     def _check_functions(self, expr: exp.Expression) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
-        for fn in expr.find_all(exp.Anonymous):
-            name = (fn.name or "").lower()
-            if name and name not in self._allowed_functions:
+        # Walk every function node (not only Anonymous): the denylist must catch a dangerous
+        # function even when sqlglot parses it into a dedicated class.
+        for fn in expr.find_all(exp.Func):
+            names = _function_names(fn)
+            forbidden = names & _FORBIDDEN_FUNCTION_NAMES
+            if forbidden:
                 issues.append(
-                    ValidationIssue("UNSUPPORTED_FUNCTION", f"Function '{name}' is not allowed.")
+                    ValidationIssue(
+                        "FORBIDDEN_FUNCTION", f"Function '{sorted(forbidden)[0]}' is not allowed."
+                    )
                 )
+                continue
+            # Unknown functions (parsed as Anonymous) must be on the positive allowlist.
+            if isinstance(fn, exp.Anonymous):
+                name = (fn.name or "").lower()
+                if name and name not in self._allowed_functions:
+                    issues.append(
+                        ValidationIssue(
+                            "UNSUPPORTED_FUNCTION", f"Function '{name}' is not allowed."
+                        )
+                    )
         return issues
 
     def _bind(self, expr: exp.Expression, issues: list[ValidationIssue]) -> _Binding:
@@ -201,13 +248,25 @@ class SqlValidator:
                     )
                 )
             elif on is not None and not self._join_is_fk_backed(on, binding):
-                issues.append(
-                    ValidationIssue(
-                        "NON_FK_JOIN",
-                        "Join is not backed by a known foreign-key relationship.",
-                        severity="warning",
+                # Equating the primary keys of two different tables is never a real relationship
+                # (e.g. orders.id = customers.id) — block it. Other non-FK joins stay advisory,
+                # because legitimate ones exist (e.g. exchange_rates.currency = orders.currency).
+                if self._join_equates_primary_keys(on, binding):
+                    issues.append(
+                        ValidationIssue(
+                            "NON_FK_JOIN",
+                            "Join equates the primary keys of two unrelated tables, which is not "
+                            "a valid relationship.",
+                        )
                     )
-                )
+                else:
+                    issues.append(
+                        ValidationIssue(
+                            "NON_FK_JOIN",
+                            "Join is not backed by a known foreign-key relationship.",
+                            severity="warning",
+                        )
+                    )
         if joins and len(joins) >= 2 and expr.find(exp.AggFunc) is not None:
             issues.append(
                 ValidationIssue(
@@ -217,6 +276,27 @@ class SqlValidator:
                 )
             )
         return issues
+
+    def _join_equates_primary_keys(self, on: exp.Expression, binding: _Binding) -> bool:
+        for eq in on.find_all(exp.EQ):
+            left, right = eq.this, eq.expression
+            if not isinstance(left, exp.Column) or not isinstance(right, exp.Column):
+                continue
+            lt = binding.alias_to_table.get(left.table.lower())
+            rt = binding.alias_to_table.get(right.table.lower())
+            if lt is None or rt is None or lt.lower() == rt.lower():
+                continue
+            if self._is_sole_primary_key(lt, left.name) and self._is_sole_primary_key(
+                rt, right.name
+            ):
+                return True
+        return False
+
+    def _is_sole_primary_key(self, table: str, column: str) -> bool:
+        resolved = self._catalog.get_table(table)
+        if resolved is None:
+            return False
+        return tuple(pk.lower() for pk in resolved.primary_key) == (column.lower(),)
 
     def _join_is_fk_backed(self, on: exp.Expression, binding: _Binding) -> bool:
         for eq in on.find_all(exp.EQ):
@@ -238,6 +318,20 @@ class SqlValidator:
         if lt is None or rt is None:
             return None
         return (lt.lower(), left.name.lower(), rt.lower(), right.name.lower())
+
+
+def _function_names(fn: exp.Func) -> set[str]:
+    """All lowercased names a function node might be known by: its literal name (for Anonymous)
+    and the canonical SQL names of its dedicated sqlglot class."""
+    names: set[str] = set()
+    literal = (getattr(fn, "name", "") or "").lower()
+    if literal:
+        names.add(literal)
+    sql_names = getattr(type(fn), "sql_names", None)
+    if callable(sql_names):
+        with suppress(Exception):  # sql_names() can raise on base/abstract nodes
+            names |= {str(n).lower() for n in sql_names()}
+    return names
 
 
 def _foreign_key_pairs(catalog: SchemaCatalog) -> set[tuple[str, str, str, str]]:

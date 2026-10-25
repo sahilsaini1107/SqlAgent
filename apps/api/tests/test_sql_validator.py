@@ -95,8 +95,15 @@ def test_unknown_column_rejected(validator: SqlValidator) -> None:
 
 
 def test_unsupported_function_rejected(validator: SqlValidator) -> None:
-    result = validator.validate("SELECT load_extension('x') FROM customers")
+    # An unknown function not on the positive allowlist is rejected.
+    result = validator.validate("SELECT made_up_fn(id) FROM customers")
     assert "UNSUPPORTED_FUNCTION" in _codes(result)
+
+
+def test_dangerous_function_rejected(validator: SqlValidator) -> None:
+    # Known-dangerous functions hit the hard denylist regardless of how they parse.
+    result = validator.validate("SELECT load_extension('x') FROM customers")
+    assert "FORBIDDEN_FUNCTION" in _codes(result)
 
 
 def test_cartesian_join_rejected(validator: SqlValidator) -> None:

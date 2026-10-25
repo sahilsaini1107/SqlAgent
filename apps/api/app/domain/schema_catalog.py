@@ -85,11 +85,11 @@ class SchemaCatalog:
                     primary_key=bool(row["pk"]),
                     description=column_notes.get(row["name"].lower()),
                 )
-                for row in conn.execute(f'PRAGMA table_info("{name}")')
+                for row in conn.execute(f'PRAGMA table_info("{_quote(name)}")')
             )
             foreign_keys = tuple(
                 ForeignKey(column=row["from"], ref_table=row["table"], ref_column=row["to"])
-                for row in conn.execute(f'PRAGMA foreign_key_list("{name}")')
+                for row in conn.execute(f'PRAGMA foreign_key_list("{_quote(name)}")')
             )
             tables.append(
                 Table(
@@ -132,6 +132,12 @@ class SchemaCatalog:
     def version(self) -> str:
         """Stable short hash of the structure; used for cache keys and execution binding."""
         return hashlib.sha256(self.compact_summary().encode("utf-8")).hexdigest()[:16]
+
+
+def _quote(identifier: str) -> str:
+    """Escape embedded double quotes so a table name is safely interpolated into a PRAGMA
+    (which doesn't accept bound parameters for the object name)."""
+    return identifier.replace('"', '""')
 
 
 _COLUMN_NAME = re.compile(r'^\s*"?(\w+)"?\s')

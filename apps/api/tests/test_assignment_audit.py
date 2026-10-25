@@ -134,9 +134,6 @@ def test_clarify_intent_returns_a_question(audit_env):
     assert state.get("clarification")
 
 
-@pytest.mark.xfail(
-    strict=True, reason="debug explanation sees only corrected SQL, not original error",
-)
 def test_debug_explanation_has_original_query_context(audit_env):
     build, _, _, _ = audit_env
     llm = RecordingLLM("debug")
@@ -146,7 +143,6 @@ def test_debug_explanation_has_original_query_context(audit_env):
     assert any("imaginary" in user for user in explanation_calls)
 
 
-@pytest.mark.xfail(strict=True, reason="invalid relationship produces only NON_FK_JOIN warning")
 def test_unrelated_join_is_blocked(audit_env):
     _, validator, _, _ = audit_env
     result = validator.validate("SELECT c.id FROM customers c JOIN orders o ON o.id = c.id")
