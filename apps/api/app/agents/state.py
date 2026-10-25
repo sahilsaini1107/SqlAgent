@@ -41,6 +41,8 @@ class AgentState(TypedDict, total=False):
 
     # Output
     explanation: str | None
+    # Set when an LLM node fails (provider error or unparseable output); the run ends gracefully.
+    error: str | None
 
     status: str
 

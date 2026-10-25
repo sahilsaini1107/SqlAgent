@@ -1,5 +1,7 @@
+import re
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # apps/api/app/config.py -> repo root is four levels up in the dev layout. Guard the
@@ -54,6 +56,27 @@ class Settings(BaseSettings):
     # Complex synthesis tier: reserved, opt-in (tight free-tier caps). Route a node here via
     # GEMINI_MODEL_PRO + an override in default_router() when needed.
     gemini_model_pro: str = "gemini-3.8-flash"
+
+    # LLM call resilience. A per-call wall-clock timeout and bounded retries keep a single
+    # transient provider error (429/503/network) from failing — or hanging — a request, and the
+    # output-token ceiling caps cost/latency on any one call.
+    llm_timeout_s: float = 30.0
+    llm_max_retries: int = 2
+    llm_max_output_tokens: int = 2048
+
+    @model_validator(mode="after")
+    def _check(self) -> "Settings":
+        # Fail fast in production rather than surfacing a missing key deep in a request.
+        if self.environment == "production" and not self.gemini_api_key:
+            raise ValueError("GEMINI_API_KEY is required when ENVIRONMENT=production")
+        # An unanchored preview regex (e.g. '.*vercel.app') would authorize look-alike origins
+        # like 'evil-vercel.app.attacker.com'; require it to be anchored end-to-end.
+        regex = self.cors_origin_regex
+        if regex and not (regex.startswith("^") and regex.endswith("$")):
+            raise ValueError("CORS_ORIGIN_REGEX must be anchored with ^ and $")
+        if regex:
+            re.compile(regex)  # surface a bad pattern at startup, not on first request
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

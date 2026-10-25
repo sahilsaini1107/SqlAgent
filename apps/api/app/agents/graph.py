@@ -18,7 +18,7 @@ from typing import Any
 
 from langgraph.graph import END, StateGraph
 
-from app.agents.llm import LLMClient, LLMUsage
+from app.agents.llm import LLMClient, LLMError, LLMUsage
 from app.agents.nodes.classify import run_classify
 from app.agents.nodes.explain import run_answer, run_explain
 from app.agents.nodes.generate import run_generate
@@ -33,8 +33,44 @@ from app.observability.logging import get_logger
 logger = get_logger("app.agent")
 
 ClientFor = Callable[[str], LLMClient]
+NodeFn = Callable[[AgentState], dict[str, Any]]
 
 MAX_REPAIR_ATTEMPTS = 2
+
+_ERROR_MESSAGE = (
+    "The assistant is temporarily unavailable due to a problem reaching the language model. "
+    "Please try again in a moment."
+)
+
+
+def _guard(node: str, fn: NodeFn) -> Any:
+    """Wrap an LLM node so a provider error or unparseable output ends the run gracefully
+    (status ``error``) instead of propagating as an unhandled 500."""
+
+    def wrapped(state: AgentState) -> dict[str, Any]:
+        try:
+            return fn(state)
+        except LLMError as err:
+            logger.warning("llm node failed", extra={"node": node, "error": str(err)})
+        except Exception:  # defensive: never let a node crash the request
+            logger.exception("node crashed", extra={"node": node})
+        return {"status": "error", "error": _ERROR_MESSAGE}
+
+    return wrapped
+
+
+def _soft_guard(node: str, fn: NodeFn) -> Any:
+    """Like ``_guard`` but for a non-essential node (explanation): on failure keep the prior
+    status and SQL/result, just omit this node's contribution."""
+
+    def wrapped(state: AgentState) -> dict[str, Any]:
+        try:
+            return fn(state)
+        except Exception:
+            logger.warning("optional node failed", extra={"node": node})
+            return {}
+
+    return wrapped
 
 _REFUSAL_OUT_OF_SCOPE = (
     "I'm designed to assist only with SQL and database-related tasks. "
@@ -145,9 +181,11 @@ def build_agent_graph(
 
     def optimize(state: AgentState) -> dict[str, Any]:
         data, usage = run_optimize(
-            user_input=state["user_input"],
+            user_input=state.get("resolved_request") or state["user_input"],
             schema_summary=state.get("schema_summary", schema_summary),
             client=client_for("optimize"),
+            previous_sql=state.get("previous_valid_sql"),
+            history=state.get("conversation_history", ""),
         )
         record = _usage_record("optimize", usage)
         if data.clarification:
@@ -183,6 +221,7 @@ def build_agent_graph(
             final_sql=final_sql,
             schema_summary=state.get("schema_summary", schema_summary),
             client=client_for("explain"),
+            user_request=state.get("resolved_request") or state.get("user_input", ""),
         )
         return {"explanation": data.explanation, "usages": [_usage_record("explain", usage)]}
 
@@ -235,6 +274,8 @@ def build_agent_graph(
         }
 
     def route_intent(state: AgentState) -> str:
+        if state.get("status") == "error":
+            return "error"
         intent = state.get("intent", "out_of_scope")
         if intent in {"out_of_scope", "destructive"}:
             return "refuse"
@@ -247,7 +288,12 @@ def build_agent_graph(
         return "generate"
 
     def after_generate(state: AgentState) -> str:
-        return "end" if state.get("status") == "clarification_required" else "validate"
+        if state.get("status") in {"clarification_required", "error"}:
+            return "end"
+        return "validate"
+
+    def after_repair(state: AgentState) -> str:
+        return "end" if state.get("status") == "error" else "validate"
 
     def after_validate(state: AgentState) -> str:
         if state.get("final_sql"):
@@ -260,14 +306,16 @@ def build_agent_graph(
 
     graph = StateGraph(AgentState)
     graph.add_node("load_context", load_context)
-    graph.add_node("classify", classify)
-    graph.add_node("generate", generate)
-    graph.add_node("optimize", optimize)
+    # LLM nodes are guarded so a provider error / unparseable output ends the run with
+    # status "error" instead of raising; explain is non-essential, so its failure is swallowed.
+    graph.add_node("classify", _guard("classify", classify))
+    graph.add_node("generate", _guard("generate", generate))
+    graph.add_node("optimize", _guard("optimize", optimize))
     graph.add_node("validate", validate)
-    graph.add_node("repair", repair)
+    graph.add_node("repair", _guard("repair", repair))
     graph.add_node("execute", execute)
-    graph.add_node("explain", explain)
-    graph.add_node("answer", answer)
+    graph.add_node("explain", _soft_guard("explain", explain))
+    graph.add_node("answer", _guard("answer", answer))
     graph.add_node("refuse", refuse)
     graph.add_node("clarify", clarify)
 
@@ -282,6 +330,7 @@ def build_agent_graph(
             "answer": "answer",
             "refuse": "refuse",
             "clarify": "clarify",
+            "error": END,
         },
     )
     graph.add_conditional_edges("generate", after_generate, {"validate": "validate", "end": END})
@@ -291,7 +340,7 @@ def build_agent_graph(
         after_validate,
         {"execute": "execute", "explain": "explain", "repair": "repair", "end": END},
     )
-    graph.add_edge("repair", "validate")
+    graph.add_conditional_edges("repair", after_repair, {"validate": "validate", "end": END})
     graph.add_edge("execute", "explain")
     graph.add_edge("explain", END)
     graph.add_edge("answer", END)

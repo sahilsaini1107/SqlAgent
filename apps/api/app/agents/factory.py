@@ -19,7 +19,13 @@ from app.config import settings
 def _client_for_model(model: str) -> GeminiLLMClient:
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
-    return GeminiLLMClient(api_key=settings.gemini_api_key, model=model)
+    return GeminiLLMClient(
+        api_key=settings.gemini_api_key,
+        model=model,
+        timeout_s=settings.llm_timeout_s,
+        max_retries=settings.llm_max_retries,
+        max_output_tokens=settings.llm_max_output_tokens,
+    )
 
 
 def default_router() -> ModelRouter:

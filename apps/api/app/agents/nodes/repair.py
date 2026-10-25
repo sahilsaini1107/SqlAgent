@@ -4,7 +4,7 @@ from typing import Any
 
 from app.agents.contracts import GeneratedSQL
 from app.agents.llm import LLMClient, LLMUsage
-from app.agents.prompt_loader import load_prompt
+from app.agents.prompt_loader import render_prompt
 
 
 def run_repair(
@@ -15,7 +15,7 @@ def run_repair(
     issues: list[dict[str, Any]],
     client: LLMClient,
 ) -> tuple[GeneratedSQL, LLMUsage]:
-    system = load_prompt("repair").format(schema=schema_summary)
+    system = render_prompt("repair", schema=schema_summary)
     issue_lines = "\n".join(f"- {i.get('code')}: {i.get('message')}" for i in issues)
     user = (
         f"Original request:\n{user_input}\n\n"

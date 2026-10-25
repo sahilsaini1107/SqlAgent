@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.agents.contracts import GeneratedSQL
 from app.agents.llm import LLMClient, LLMUsage
-from app.agents.prompt_loader import load_prompt
+from app.agents.prompt_loader import render_prompt
 
 
 def run_generate(
@@ -13,7 +13,7 @@ def run_generate(
     client: LLMClient,
     history: str = "",
 ) -> tuple[GeneratedSQL, LLMUsage]:
-    system = load_prompt("generate").format(schema=schema_summary)
+    system = render_prompt("generate", schema=schema_summary)
     user = _build_user_message(user_input, previous_sql, history)
     result = client.structured(system=system, user=user, schema=GeneratedSQL)
     return result.data, result.usage
