@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Iterator
+from contextlib import suppress
 from typing import Any
 
 import sqlglot
@@ -31,6 +33,19 @@ _STREAM_ERROR = "The assistant hit an unexpected error while answering. Please t
 
 def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+def _run_config(run_id: str) -> dict[str, Any]:
+    return {"configurable": {"thread_id": run_id}}
+
+
+def _discard_run(graph: Any, run_id: str) -> None:
+    """Drop a completed run's checkpoints so the checkpoint DB doesn't grow unbounded. A run that
+    crashes or is interrupted is *not* discarded, so it survives for resume."""
+    checkpointer = getattr(graph, "checkpointer", None)
+    if checkpointer is not None:
+        with suppress(Exception):  # cleanup is best-effort; never fail a served turn over it
+            checkpointer.delete_thread(run_id)
 
 
 def _resolve_conversation(store: SessionStore, conversation_id: str | None) -> str:
@@ -106,13 +121,17 @@ def chat(
     previous_sql = store.last_validated_sql(conversation_id)
     history = format_history(store.get_history(conversation_id))
 
+    # Each turn runs under its own checkpoint thread: durable during the run, and discarded on
+    # success. A fresh thread per turn means no state from the previous turn can bleed in.
+    run_id = uuid.uuid4().hex
     state: dict[str, Any] = graph.invoke(
         {
             "user_input": req.message,
             "execution_requested": req.execute,
             "previous_valid_sql": previous_sql,
             "conversation_history": history,
-        }
+        },
+        config=_run_config(run_id),
     )
 
     response = _to_response(
@@ -121,6 +140,7 @@ def chat(
     _persist_turn(
         store, conversation_id, req.message, response, canonical_sql=state.get("final_sql")
     )
+    _discard_run(graph, run_id)
     return response
 
 
@@ -131,33 +151,58 @@ def chat_stream(
     store: SessionStore = Depends(get_session_store),
 ) -> StreamingResponse:
     conversation_id = _resolve_conversation(store, req.conversation_id)
-    previous_sql = store.last_validated_sql(conversation_id)
-    history = format_history(store.get_history(conversation_id))
     trace_id = trace_id_var.get()  # captured here; the context resets before the body streams
     dialect = req.dialect
-    inputs = {
-        "user_input": req.message,
-        "execution_requested": req.execute,
-        "previous_valid_sql": previous_sql,
-        "conversation_history": history,
-    }
+
+    # Resume an interrupted run from its last checkpoint, or start a fresh run. On resume we pass
+    # no input so the graph continues from where it stopped; the client re-supplies the turn
+    # context (conversation_id/message/dialect) in the request.
+    if req.resume_run_id:
+        run_id = req.resume_run_id
+        snapshot = graph.get_state(_run_config(run_id))
+        if not getattr(snapshot, "values", None):
+            raise HTTPException(status_code=404, detail="run not found or already completed")
+        stream_input = None
+    else:
+        run_id = uuid.uuid4().hex
+        previous_sql = store.last_validated_sql(conversation_id)
+        history = format_history(store.get_history(conversation_id))
+        stream_input = {
+            "user_input": req.message,
+            "execution_requested": req.execute,
+            "previous_valid_sql": previous_sql,
+            "conversation_history": history,
+        }
+    config = _run_config(run_id)
 
     def event_stream() -> Iterator[str]:
-        yield _sse("start", {"conversation_id": conversation_id, "trace_id": trace_id})
+        yield _sse(
+            "start",
+            {"conversation_id": conversation_id, "trace_id": trace_id, "run_id": run_id},
+        )
         final_state: dict[str, Any] = {}
         try:
-            for state in graph.stream(inputs, stream_mode="values"):
+            for state in graph.stream(stream_input, config=config, stream_mode="values"):
                 final_state = state
                 status = state.get("status")
                 if status:
                     yield _sse("stage", {"status": status})
-        except GeneratorExit:  # client disconnected — stop quietly, persist nothing partial
-            logger.info("chat stream disconnected", extra={"conversation_id": conversation_id})
+        except GeneratorExit:  # client disconnected — keep the checkpoint so the run can resume
+            logger.info(
+                "chat stream disconnected",
+                extra={"conversation_id": conversation_id, "run_id": run_id},
+            )
             raise
         except Exception:
-            logger.exception("chat stream failed", extra={"conversation_id": conversation_id})
-            yield _sse("error", {"trace_id": trace_id, "message": _STREAM_ERROR})
+            logger.exception(
+                "chat stream failed",
+                extra={"conversation_id": conversation_id, "run_id": run_id},
+            )
+            yield _sse("error", {"trace_id": trace_id, "run_id": run_id, "message": _STREAM_ERROR})
             return
+        if not final_state:  # resumed a run that had already completed — read the saved state
+            saved = graph.get_state(config)
+            final_state = getattr(saved, "values", {}) or {}
         response = _to_response(
             conversation_id, final_state, trace_id, dialect, user_input=req.message
         )
@@ -168,6 +213,7 @@ def chat_stream(
             response,
             canonical_sql=final_state.get("final_sql"),
         )
+        _discard_run(graph, run_id)
         yield _sse("result", response.model_dump())
 
     return StreamingResponse(

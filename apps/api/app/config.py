@@ -29,6 +29,9 @@ class Settings(BaseSettings):
 
     # Application database for conversations/messages (separate from the sample query DB).
     app_db_filename: str = "app.sqlite"
+    # LangGraph checkpointer database: per-run graph state for durability/resumability. Lives
+    # next to the app DB (so APP_DB_DIR covers it on a read-only serverless filesystem).
+    checkpoint_db_filename: str = "checkpoints.sqlite"
     # Writable directory for the app DB. On a read-only serverless filesystem (e.g. Vercel),
     # set APP_DB_DIR=/tmp — conversation history is then per-instance and ephemeral.
     app_db_dir: Path | None = None
@@ -90,6 +93,11 @@ class Settings(BaseSettings):
     def app_db_path(self) -> Path:
         base = self.app_db_dir if self.app_db_dir is not None else self.data_dir
         return base / self.app_db_filename
+
+    @property
+    def checkpoint_db_path(self) -> Path:
+        base = self.app_db_dir if self.app_db_dir is not None else self.data_dir
+        return base / self.checkpoint_db_filename
 
 
 settings = Settings()

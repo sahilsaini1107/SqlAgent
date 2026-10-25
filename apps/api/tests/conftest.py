@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,12 +34,13 @@ def make_client(tmp_path: Path, sample_db: Path) -> Iterator[Callable[[LLMClient
     validator = SqlValidator(catalog, execute_check=adapter.explain)
     store = SessionStore(tmp_path / "app.sqlite")
 
-    def factory(llm: LLMClient) -> TestClient:
+    def factory(llm: LLMClient, *, checkpointer: Any = None) -> TestClient:
         graph = build_agent_graph(
             client_for=lambda _node: llm,
             schema_summary=catalog.compact_summary(),
             validator=validator,
             adapter=adapter,
+            checkpointer=checkpointer,
         )
         app.dependency_overrides[get_graph] = lambda: graph
         app.dependency_overrides[get_session_store] = lambda: store

@@ -108,6 +108,7 @@ def build_agent_graph(
     validator: SqlValidator,
     adapter: DatabaseAdapter | None = None,
     limits: QueryLimits | None = None,
+    checkpointer: Any = None,
 ) -> Any:
     query_limits = limits or QueryLimits()
 
@@ -346,4 +347,7 @@ def build_agent_graph(
     graph.add_edge("answer", END)
     graph.add_edge("refuse", END)
     graph.add_edge("clarify", END)
-    return graph.compile()
+    # With a checkpointer the per-step state is persisted, so a run survives a crash/disconnect
+    # and can be resumed from its last checkpoint (see routes_chat). Without one (tests), the
+    # graph behaves exactly as before.
+    return graph.compile(checkpointer=checkpointer)
